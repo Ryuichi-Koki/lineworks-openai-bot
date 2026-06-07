@@ -6,7 +6,7 @@ export type ReplyDraft = {
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = process.env[name] || process.env[`\uFEFF${name}`];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
