@@ -65,6 +65,37 @@ npm run dev
 
 ローカルでは `http://localhost:3000/api/lineworks/callback` が Callback エンドポイントです。LINE WORKS の Callback URL には HTTPS が必要なため、公開環境へデプロイするか、検証時は HTTPS トンネルを利用してください。
 
+## Vercel デプロイ
+
+1. GitHub にこのリポジトリを push します。
+2. Vercel にログインし、`Add New...` -> `Project` を選択します。
+3. GitHub リポジトリ `lineworks-openai-bot` を Import します。
+4. Framework Preset は `Next.js` のままにします。
+5. Root Directory は変更せず、リポジトリのルートを使います。
+6. Environment Variables に `.env.local` と同じキーを登録します。
+7. `Deploy` を実行します。
+8. 発行された Vercel URL に `/api/lineworks/callback` を付けた URL を LINE WORKS の Callback URL に設定します。
+
+例:
+
+```text
+https://lineworks-openai-bot.vercel.app/api/lineworks/callback
+```
+
+Vercel に登録する環境変数:
+
+```text
+OPENAI_API_KEY
+OPENAI_MODEL
+LINEWORKS_CLIENT_ID
+LINEWORKS_CLIENT_SECRET
+LINEWORKS_SERVICE_ACCOUNT
+LINEWORKS_PRIVATE_KEY
+LINEWORKS_BOT_ID
+LINEWORKS_BOT_SECRET
+LINEWORKS_STAFF_CHANNEL_ID
+```
+
 ## 処理フロー
 
 1. LINE WORKS Callback を raw body で受信します。
