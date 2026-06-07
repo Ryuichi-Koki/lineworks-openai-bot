@@ -51,8 +51,6 @@ LINEWORKS_STAFF_CHANNEL_ID=
 https://your-domain.example/api/lineworks/callback
 ```
 
-`/lineworks/callback` で登録済みの場合も同じ処理へ転送されますが、基本のエンドポイントは `/api/lineworks/callback` です。
-
 5. Client App で Service Account と Private Key を発行します。
 6. Bot API 送信用に `bot.message` scope を利用できるようにします。
 7. 担当者確認用トークルームの channelId を `LINEWORKS_STAFF_CHANNEL_ID` に設定します。
