@@ -7,3 +7,4 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lineworks_private_key_base64.txt
+lineworks_private_key_vercel_value.txt
