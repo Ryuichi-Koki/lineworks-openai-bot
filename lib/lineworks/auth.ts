@@ -25,7 +25,14 @@ function base64UrlEncode(input: string | Buffer): string {
 }
 
 function normalizePrivateKey(privateKey: string): string {
-  return privateKey.replace(/\\n/g, "\n");
+  let normalized = privateKey.trim();
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    normalized = normalized.slice(1, -1);
+  }
+  return normalized.replace(/\\n/g, "\n").replace(/\r/g, "");
 }
 
 function createServiceAccountJwt(): string {
