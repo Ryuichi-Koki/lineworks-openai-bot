@@ -20,51 +20,18 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function getEnv(name: string): string | undefined {
-  return process.env[name] || process.env[`\uFEFF${name}`];
-}
-
 function base64UrlEncode(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
 }
 
 function normalizePrivateKey(privateKey: string): string {
-  let normalized = privateKey.trim();
-  if (
-    (normalized.startsWith('"') && normalized.endsWith('"')) ||
-    (normalized.startsWith("'") && normalized.endsWith("'"))
-  ) {
-    normalized = normalized.slice(1, -1);
-  }
-  return normalized.replace(/\\n/g, "\n").replace(/\r/g, "");
-}
-
-function normalizeBase64Value(value: string): string {
-  let normalized = value.trim();
-  if (
-    (normalized.startsWith('"') && normalized.endsWith('"')) ||
-    (normalized.startsWith("'") && normalized.endsWith("'"))
-  ) {
-    normalized = normalized.slice(1, -1);
-  }
-  return normalized.replace(/\s/g, "");
-}
-
-function getLineWorksPrivateKey(): string {
-  const privateKeyBase64 = getEnv("LINEWORKS_PRIVATE_KEY_BASE64");
-  if (privateKeyBase64) {
-    return normalizePrivateKey(
-      Buffer.from(normalizeBase64Value(privateKeyBase64), "base64").toString("utf8"),
-    );
-  }
-
-  return normalizePrivateKey(requireEnv("LINEWORKS_PRIVATE_KEY"));
+  return privateKey.replace(/\\n/g, "\n");
 }
 
 function createServiceAccountJwt(): string {
   const clientId = requireEnv("LINEWORKS_CLIENT_ID");
   const serviceAccount = requireEnv("LINEWORKS_SERVICE_ACCOUNT");
-  const privateKey = getLineWorksPrivateKey();
+  const privateKey = normalizePrivateKey(requireEnv("LINEWORKS_PRIVATE_KEY"));
   const now = Math.floor(Date.now() / 1000);
 
   const header = {
