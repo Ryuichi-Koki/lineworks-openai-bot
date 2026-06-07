@@ -38,7 +38,9 @@ function normalizePrivateKey(privateKey: string): string {
 function createServiceAccountJwt(): string {
   const clientId = requireEnv("LINEWORKS_CLIENT_ID");
   const serviceAccount = requireEnv("LINEWORKS_SERVICE_ACCOUNT");
-  const privateKey = normalizePrivateKey(requireEnv("LINEWORKS_PRIVATE_KEY"));
+  const privateKey = process.env.LINEWORKS_PRIVATE_KEY_BASE64
+    ? Buffer.from(process.env.LINEWORKS_PRIVATE_KEY_BASE64, "base64").toString("utf8")
+    : normalizePrivateKey(requireEnv("LINEWORKS_PRIVATE_KEY"));
   const now = Math.floor(Date.now() / 1000);
 
   const header = {
