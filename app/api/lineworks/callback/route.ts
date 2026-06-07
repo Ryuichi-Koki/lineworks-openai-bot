@@ -64,17 +64,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true, ignored: true });
   }
 
+  let draft: Awaited<ReturnType<typeof generateReplyDraft>>;
   try {
-    const draft = await generateReplyDraft(customerMessage);
-    await sendStaffChannelMessage(
-      formatStaffMessage(customerMessage, draft.draftReply, draft.checkItems),
-    );
+    draft = await generateReplyDraft(customerMessage);
+  } catch (error) {
+    console.error("OpenAI reply draft generation failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    return NextResponse.json({ error: "Internal Server Error", stage: "openai" }, { status: 500 });
+  }
 
+  try {
+    await sendStaffChannelMessage(formatStaffMessage(customerMessage, draft.draftReply, draft.checkItems));
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("LINE WORKS callback processing failed", {
+    console.error("LINE WORKS staff notification failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
     });
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error", stage: "lineworks" },
+      { status: 500 },
+    );
   }
 }
