@@ -20,6 +20,10 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function getEnv(name: string): string | undefined {
+  return process.env[name] || process.env[`\uFEFF${name}`];
+}
+
 function base64UrlEncode(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
 }
@@ -38,8 +42,9 @@ function normalizePrivateKey(privateKey: string): string {
 function createServiceAccountJwt(): string {
   const clientId = requireEnv("LINEWORKS_CLIENT_ID");
   const serviceAccount = requireEnv("LINEWORKS_SERVICE_ACCOUNT");
-  const privateKey = process.env.LINEWORKS_PRIVATE_KEY_BASE64
-    ? Buffer.from(process.env.LINEWORKS_PRIVATE_KEY_BASE64, "base64").toString("utf8")
+  const privateKeyBase64 = getEnv("LINEWORKS_PRIVATE_KEY_BASE64")?.trim();
+  const privateKey = privateKeyBase64
+    ? Buffer.from(privateKeyBase64, "base64").toString("utf8")
     : normalizePrivateKey(requireEnv("LINEWORKS_PRIVATE_KEY"));
   const now = Math.floor(Date.now() / 1000);
 
