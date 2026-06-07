@@ -84,7 +84,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       errorMessage: error instanceof Error ? error.message : "Unknown error",
     });
     return NextResponse.json(
-      { error: "Internal Server Error", stage: "lineworks" },
+      {
+        error: "Internal Server Error",
+        stage: "lineworks",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 },
     );
   }
