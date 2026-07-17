@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { createApproval, type ApprovalRecord } from "@/lib/approvals/store";
+import {
+  appendConversationMessage,
+  createApproval,
+  getConversationHistory,
+  type ApprovalRecord,
+} from "@/lib/approvals/store";
 import { verifyLineSignature } from "@/lib/line/verifySignature";
 import { sendStaffApprovalMessage } from "@/lib/lineworks/client";
 import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
@@ -40,7 +45,8 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   if (!event) return;
 
   const id = createHash("sha256").update(event.eventId).digest("hex").slice(0, 32);
-  const draft = await generateReplyDraft(event.text);
+  const conversationHistory = await getConversationHistory(event.userId);
+  const draft = await generateReplyDraft(event.text, conversationHistory);
   const now = new Date().toISOString();
   const record: ApprovalRecord = {
     id,
@@ -56,6 +62,18 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   };
 
   if (await createApproval(record)) {
+    try {
+      await appendConversationMessage(event.userId, {
+        role: "customer",
+        text: event.text,
+        createdAt: now,
+      });
+    } catch (error) {
+      console.error("Failed to save customer conversation history", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
     await sendStaffApprovalMessage(record);
   }
 }

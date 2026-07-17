@@ -16,6 +16,12 @@ export type ReplyDraft = {
   checkItems: string[];
 };
 
+export type ConversationContextMessage = {
+  role: "customer" | "assistant";
+  text: string;
+  createdAt: string;
+};
+
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 function requireEnv(name: string): string {
@@ -176,9 +182,28 @@ async function requestReplyDraft(inputText: string): Promise<ReplyDraft> {
   return parseDraftJson(outputText);
 }
 
-export async function generateReplyDraft(customerMessage: string): Promise<ReplyDraft> {
+export async function generateReplyDraft(
+  customerMessage: string,
+  conversationHistory: ConversationContextMessage[] = [],
+): Promise<ReplyDraft> {
+  const historyText = conversationHistory
+    .map((message) => {
+      const speaker = message.role === "customer" ? "顧問先" : "当事務所";
+      return `[${message.createdAt}] ${speaker}: ${message.text}`;
+    })
+    .join("\n");
+
   return requestReplyDraft(
-    `次の顧客メッセージを分類し、返信案と担当者の確認事項を作成してください。\n\n顧客メッセージ:\n${customerMessage}`,
+    [
+      "次の顧客メッセージを分類し、返信案と担当者の確認事項を作成してください。",
+      "過去の会話がある場合は、今回の質問と関連する情報を引き継いでください。顧問先がすでに伝えた事項を再度質問しないでください。過去の会話と今回の内容が別件の場合は混同せず、今回のメッセージを優先してください。",
+      "",
+      "過去の会話:",
+      historyText || "なし",
+      "",
+      "今回の顧客メッセージ:",
+      customerMessage,
+    ].join("\n"),
   );
 }
 

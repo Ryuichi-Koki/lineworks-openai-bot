@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  appendConversationMessage,
   createRevisionSession,
   deleteRevisionSession,
   getApproval,
@@ -106,6 +107,19 @@ async function handleApproval(
   try {
     await pushLineMessage(claimed.lineUserId, claimed.draftReply, claimed.lineRetryKey);
     await transitionApproval(approvalId, "sending", "sent", reviewerUserId);
+    try {
+      await appendConversationMessage(claimed.lineUserId, {
+        role: "assistant",
+        text: claimed.draftReply,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Failed to save approved reply in conversation history", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        approvalId,
+      });
+    }
     await sendStaffChannelMessage(
       `✅ 顧問先へ送信しました\n分類: ${claimed.category}\n案件ID: ${claimed.id}`,
     );

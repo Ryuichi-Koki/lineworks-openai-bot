@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ReplyDraft } from "@/lib/openai/generateReplyDraft";
 
 export type ApprovalStatus =
@@ -28,18 +29,29 @@ export type RevisionSession = {
   createdAt: string;
 };
 
+export type ConversationMessage = {
+  role: "customer" | "assistant";
+  text: string;
+  createdAt: string;
+};
+
 type RedisResponse<T> = { result?: T; error?: string };
 
 const KEY_PREFIX = "apexbrain:line-approval:";
 const REVISION_SESSION_KEY_PREFIX = "apexbrain:revision-session:";
+const CONVERSATION_KEY_PREFIX = "apexbrain:line-conversation:";
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 14;
 const REVISION_SESSION_TTL_SECONDS = 60 * 30;
+const DEFAULT_CONVERSATION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const DEFAULT_CONVERSATION_MAX_MESSAGES = 20;
 
 declare global {
   // eslint-disable-next-line no-var
   var __lineApprovalMemoryStore: Map<string, ApprovalRecord> | undefined;
   // eslint-disable-next-line no-var
   var __lineRevisionSessionMemoryStore: Map<string, RevisionSession> | undefined;
+  // eslint-disable-next-line no-var
+  var __lineConversationMemoryStore: Map<string, ConversationMessage[]> | undefined;
 }
 
 const memoryStore = globalThis.__lineApprovalMemoryStore ?? new Map<string, ApprovalRecord>();
@@ -47,6 +59,35 @@ globalThis.__lineApprovalMemoryStore = memoryStore;
 const revisionSessionMemoryStore =
   globalThis.__lineRevisionSessionMemoryStore ?? new Map<string, RevisionSession>();
 globalThis.__lineRevisionSessionMemoryStore = revisionSessionMemoryStore;
+const conversationMemoryStore =
+  globalThis.__lineConversationMemoryStore ?? new Map<string, ConversationMessage[]>();
+globalThis.__lineConversationMemoryStore = conversationMemoryStore;
+
+function conversationKey(lineUserId: string): string {
+  const userHash = createHash("sha256").update(lineUserId).digest("hex").slice(0, 32);
+  return `${CONVERSATION_KEY_PREFIX}${userHash}`;
+}
+
+function positiveInteger(value: string | undefined, fallback: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
+}
+
+function conversationMaxMessages(): number {
+  return positiveInteger(
+    process.env.CONVERSATION_HISTORY_MAX_MESSAGES,
+    DEFAULT_CONVERSATION_MAX_MESSAGES,
+    50,
+  );
+}
+
+function conversationTtlSeconds(): number {
+  return positiveInteger(
+    process.env.CONVERSATION_HISTORY_TTL_SECONDS,
+    DEFAULT_CONVERSATION_TTL_SECONDS,
+    60 * 60 * 24 * 90,
+  );
+}
 
 function revisionSessionKey(channelId: string, reviewerUserId: string): string {
   return `${REVISION_SESSION_KEY_PREFIX}${channelId}:${reviewerUserId}`;
@@ -115,6 +156,56 @@ export async function getApproval(id: string): Promise<ApprovalRecord | null> {
 
   const value = await redisCommand<string | null>(["GET", `${KEY_PREFIX}${id}`]);
   return value ? (JSON.parse(value) as ApprovalRecord) : null;
+}
+
+export async function getConversationHistory(lineUserId: string): Promise<ConversationMessage[]> {
+  const key = conversationKey(lineUserId);
+  if (!getRedisConfig()) {
+    return (conversationMemoryStore.get(key) ?? []).slice(-conversationMaxMessages());
+  }
+
+  const values = await redisCommand<string[]>(["LRANGE", key, "0", "-1"]);
+  return values.flatMap((value) => {
+    try {
+      const message = JSON.parse(value) as Partial<ConversationMessage>;
+      return (message.role === "customer" || message.role === "assistant") &&
+        typeof message.text === "string" &&
+        typeof message.createdAt === "string"
+        ? [message as ConversationMessage]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+export async function appendConversationMessage(
+  lineUserId: string,
+  message: ConversationMessage,
+): Promise<void> {
+  const key = conversationKey(lineUserId);
+  const maxMessages = conversationMaxMessages();
+  if (!getRedisConfig()) {
+    const messages = [...(conversationMemoryStore.get(key) ?? []), message].slice(-maxMessages);
+    conversationMemoryStore.set(key, messages);
+    return;
+  }
+
+  const script = [
+    "redis.call('RPUSH', KEYS[1], ARGV[1])",
+    "redis.call('LTRIM', KEYS[1], -tonumber(ARGV[2]), -1)",
+    "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))",
+    "return 1",
+  ].join("\n");
+  await redisCommand<number>([
+    "EVAL",
+    script,
+    "1",
+    key,
+    JSON.stringify(message),
+    String(maxMessages),
+    String(conversationTtlSeconds()),
+  ]);
 }
 
 export async function transitionApproval(
