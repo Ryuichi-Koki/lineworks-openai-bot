@@ -31,17 +31,19 @@ type ApprovalActionEvent = {
   revision: number | null;
 };
 
+function getConversationId(event: LineWorksCallbackEvent, reviewerUserId: string): string {
+  return typeof event.source?.channelId === "string"
+    ? event.source.channelId
+    : `direct:${reviewerUserId}`;
+}
+
 function getApprovalAction(event: LineWorksCallbackEvent): ApprovalActionEvent | null {
   const postback = event.type === "postback" ? event.data : event.content?.postback;
   const reviewerUserId = event.source?.userId;
-  const channelId = event.source?.channelId;
-  if (
-    typeof postback !== "string" ||
-    typeof reviewerUserId !== "string" ||
-    typeof channelId !== "string"
-  ) {
+  if (typeof postback !== "string" || typeof reviewerUserId !== "string") {
     return null;
   }
+  const channelId = getConversationId(event, reviewerUserId);
 
   const values = new URLSearchParams(postback);
   const approvalId = values.get("approvalId");
@@ -62,14 +64,14 @@ function getRevisionInstruction(
     event.content?.type !== "text" ||
     typeof event.content.text !== "string" ||
     typeof event.source?.userId !== "string" ||
-    typeof event.source.channelId !== "string" ||
     typeof event.content.postback === "string"
   ) {
     return null;
   }
   const instruction = event.content.text.trim();
+  const channelId = getConversationId(event, event.source.userId);
   return instruction
-    ? { reviewerUserId: event.source.userId, channelId: event.source.channelId, instruction }
+    ? { reviewerUserId: event.source.userId, channelId, instruction }
     : null;
 }
 

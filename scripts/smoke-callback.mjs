@@ -25,8 +25,16 @@ if (!botSecret) {
 
 const payload = {
   type: "message",
-  source: { userId: "smoke-test-reviewer", channelId: "smoke-test-channel" },
-  content: mode === "approval" ? { postback: "approvalId=missing&action=approve" } : { type: "text", text: "確認" },
+  source:
+    mode === "directRevision"
+      ? { userId: "smoke-test-reviewer" }
+      : { userId: "smoke-test-reviewer", channelId: "smoke-test-channel" },
+  content:
+    mode === "approval"
+      ? { postback: "approvalId=missing&action=approve" }
+      : mode === "directRevision"
+        ? { type: "text", text: "修正依頼", postback: "approvalId=missing&action=revise&revision=0" }
+        : { type: "text", text: "確認" },
 };
 const body = JSON.stringify(payload);
 const signature =
