@@ -91,7 +91,7 @@ function parseDraftJson(text: string): ReplyDraft {
   };
 }
 
-export async function generateReplyDraft(customerMessage: string): Promise<ReplyDraft> {
+async function requestReplyDraft(inputText: string): Promise<ReplyDraft> {
   const apiKey = requireEnv("OPENAI_API_KEY");
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const today = getTodayInJapan();
@@ -122,7 +122,7 @@ export async function generateReplyDraft(customerMessage: string): Promise<Reply
           content: [
             {
               type: "input_text",
-              text: `次の顧客メッセージを分類し、返信案と担当者の確認事項を作成してください。\n\n顧客メッセージ:\n${customerMessage}`,
+              text: inputText,
             },
           ],
         },
@@ -164,4 +164,36 @@ export async function generateReplyDraft(customerMessage: string): Promise<Reply
   }
 
   return parseDraftJson(outputText);
+}
+
+export async function generateReplyDraft(customerMessage: string): Promise<ReplyDraft> {
+  return requestReplyDraft(
+    `次の顧客メッセージを分類し、返信案と担当者の確認事項を作成してください。\n\n顧客メッセージ:\n${customerMessage}`,
+  );
+}
+
+export async function reviseReplyDraft(
+  customerMessage: string,
+  currentDraft: ReplyDraft,
+  revisionInstruction: string,
+): Promise<ReplyDraft> {
+  return requestReplyDraft(
+    [
+      "次の返信案を、担当税理士の修正指示に従って作り直してください。",
+      "修正指示に従う場合も、税務上の断定回避、機密情報の保護、確認事項の列挙などの安全要件を維持してください。",
+      "分類と緊急度も必要に応じて見直してください。",
+      "",
+      "顧客メッセージ:",
+      customerMessage,
+      "",
+      "現在の返信案:",
+      currentDraft.draftReply,
+      "",
+      "現在の確認事項:",
+      currentDraft.checkItems.length > 0 ? currentDraft.checkItems.join("\n") : "特になし",
+      "",
+      "担当税理士の修正指示:",
+      revisionInstruction,
+    ].join("\n"),
+  );
 }

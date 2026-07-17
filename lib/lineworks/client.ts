@@ -55,6 +55,7 @@ function truncate(value: string, maxLength: number): string {
 }
 
 export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<void> {
+  const revision = record.revision ?? 0;
   const checks =
     record.checkItems.length > 0
       ? record.checkItems.map((item) => `・${item}`).join("\n")
@@ -62,6 +63,7 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
   const contentText = truncate(
     [
       `【${record.category}／${record.urgency}】顧問先からの質問`,
+      ...(revision > 0 ? [`（修正版 ${revision}）`] : []),
       record.customerMessage,
       "",
       "【GPT返信案】",
@@ -82,12 +84,17 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
       {
         type: "message",
         label: "承認して送信",
-        postback: `approvalId=${encodeURIComponent(record.id)}&action=approve`,
+        postback: `approvalId=${encodeURIComponent(record.id)}&action=approve&revision=${revision}`,
+      },
+      {
+        type: "message",
+        label: "修正依頼",
+        postback: `approvalId=${encodeURIComponent(record.id)}&action=revise&revision=${revision}`,
       },
       {
         type: "message",
         label: "却下",
-        postback: `approvalId=${encodeURIComponent(record.id)}&action=reject`,
+        postback: `approvalId=${encodeURIComponent(record.id)}&action=reject&revision=${revision}`,
       },
     ],
   });

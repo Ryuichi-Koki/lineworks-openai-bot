@@ -49,6 +49,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     customerMessage: event.text,
     lineRetryKey: randomUUID(),
     ...draft,
+    revision: 0,
     status: "pending",
     createdAt: now,
     updatedAt: now,
