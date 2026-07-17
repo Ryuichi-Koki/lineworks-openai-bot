@@ -1,54 +1,90 @@
 import { NextResponse } from "next/server";
+import { getApproval, transitionApproval } from "@/lib/approvals/store";
+import { pushLineMessage } from "@/lib/line/client";
 import { sendStaffChannelMessage } from "@/lib/lineworks/client";
 import { verifyLineWorksSignature } from "@/lib/lineworks/verifySignature";
-import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
 
 export const runtime = "nodejs";
 
 type LineWorksCallbackEvent = {
   type?: unknown;
-  content?: {
-    type?: unknown;
-    text?: unknown;
-  };
-  message?: {
-    type?: unknown;
-    text?: unknown;
-  };
+  source?: { userId?: unknown; channelId?: unknown };
+  data?: unknown;
+  content?: { postback?: unknown };
 };
 
-function getTextMessage(event: LineWorksCallbackEvent): string | null {
-  const content = event.content ?? event.message;
-  if (event.type !== "message" || content?.type !== "text" || typeof content.text !== "string") {
+type ApprovalAction = "approve" | "reject";
+
+function getApprovalAction(
+  event: LineWorksCallbackEvent,
+): { approvalId: string; action: ApprovalAction; reviewerUserId: string } | null {
+  const postback = event.type === "postback" ? event.data : event.content?.postback;
+  const reviewerUserId = event.source?.userId;
+  if (typeof postback !== "string" || typeof reviewerUserId !== "string") {
     return null;
   }
-  return content.text;
+
+  const values = new URLSearchParams(postback);
+  const approvalId = values.get("approvalId");
+  const action = values.get("action");
+  if (!approvalId || (action !== "approve" && action !== "reject")) {
+    return null;
+  }
+  return { approvalId, action, reviewerUserId };
 }
 
-function formatStaffMessage(customerMessage: string, draftReply: string, checkItems: string[]): string {
-  const formattedCheckItems =
-    checkItems.length > 0 ? checkItems.map((item) => `・${item}`).join("\n") : "・特になし";
+function isAuthorizedApprover(userId: string): boolean {
+  const configured = process.env.LINEWORKS_APPROVER_USER_IDS;
+  if (!configured) return true;
+  return configured
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(userId);
+}
 
-  return [
-    "【顧客からの質問】",
-    customerMessage,
-    "",
-    "【GPT返信案】",
-    draftReply,
-    "",
-    "【確認事項】",
-    formattedCheckItems,
-    "",
-    "【注意】",
-    "この返信案はAI生成です。送信前に担当者が内容を確認してください。",
-  ].join("\n");
+async function handleApproval(
+  approvalId: string,
+  reviewerUserId: string,
+): Promise<{ status: string }> {
+  const record = await getApproval(approvalId);
+  if (!record) return { status: "not_found" };
+  if (record.status !== "pending") return { status: record.status };
+
+  const claimed = await transitionApproval(approvalId, "pending", "sending", reviewerUserId);
+  if (!claimed) return { status: "already_processed" };
+
+  try {
+    await pushLineMessage(claimed.lineUserId, claimed.draftReply, claimed.lineRetryKey);
+    await transitionApproval(approvalId, "sending", "sent", reviewerUserId);
+    await sendStaffChannelMessage(
+      `✅ 顧問先へ送信しました\n分類: ${claimed.category}\n案件ID: ${claimed.id}`,
+    );
+    return { status: "sent" };
+  } catch (error) {
+    await transitionApproval(approvalId, "sending", "pending", reviewerUserId);
+    throw error;
+  }
+}
+
+async function handleRejection(
+  approvalId: string,
+  reviewerUserId: string,
+): Promise<{ status: string }> {
+  const rejected = await transitionApproval(approvalId, "pending", "rejected", reviewerUserId);
+  if (!rejected) {
+    const current = await getApproval(approvalId);
+    return { status: current?.status ?? "not_found" };
+  }
+  await sendStaffChannelMessage(
+    `⏸️ 返信案を却下しました。顧問先には送信していません。\n案件ID: ${rejected.id}`,
+  );
+  return { status: "rejected" };
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
   const rawBody = await request.text();
-  const signature = request.headers.get("x-works-signature");
-
-  if (!verifyLineWorksSignature(rawBody, signature)) {
+  if (!verifyLineWorksSignature(rawBody, request.headers.get("x-works-signature"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -59,37 +95,25 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const customerMessage = getTextMessage(event);
-  if (!customerMessage) {
+  const approval = getApprovalAction(event);
+  if (!approval) {
     return NextResponse.json({ ok: true, ignored: true });
   }
-
-  let draft: Awaited<ReturnType<typeof generateReplyDraft>>;
-  try {
-    draft = await generateReplyDraft(customerMessage);
-  } catch (error) {
-    console.error("OpenAI reply draft generation failed", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      errorMessage: error instanceof Error ? error.message : "Unknown error",
-    });
-    return NextResponse.json({ error: "Internal Server Error", stage: "openai" }, { status: 500 });
+  if (!isAuthorizedApprover(approval.reviewerUserId)) {
+    return NextResponse.json({ error: "Approver not allowed" }, { status: 403 });
   }
 
   try {
-    await sendStaffChannelMessage(formatStaffMessage(customerMessage, draft.draftReply, draft.checkItems));
-    return NextResponse.json({ ok: true });
+    const result =
+      approval.action === "approve"
+        ? await handleApproval(approval.approvalId, approval.reviewerUserId)
+        : await handleRejection(approval.approvalId, approval.reviewerUserId);
+    return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("LINE WORKS staff notification failed", {
+    console.error("Approval processing failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",
       errorMessage: error instanceof Error ? error.message : "Unknown error",
     });
-    return NextResponse.json(
-      {
-        error: "Internal Server Error",
-        stage: "lineworks",
-        detail: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

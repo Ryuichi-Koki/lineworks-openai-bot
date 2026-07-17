@@ -1,36 +1,34 @@
 import { createHmac } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+
+function loadEnvFile() {
+  if (!existsSync(".env.local")) return;
+  for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
+    if (!line || line.startsWith("#") || !line.includes("=")) continue;
+    const [rawKey, ...parts] = line.split("=");
+    const key = rawKey.replace(/^\uFEFF/, "");
+    let value = parts.join("=");
+    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+loadEnvFile();
 
 const callbackUrl = process.argv[2] ?? "http://localhost:3000/api/lineworks/callback";
-const mode = process.argv[3] ?? "text";
+const mode = process.argv[3] ?? "ignored";
 const botSecret = process.env.LINEWORKS_BOT_SECRET;
-
 if (!botSecret) {
   console.error("LINEWORKS_BOT_SECRET is required.");
   process.exit(1);
 }
 
-const payloads = {
-  text: {
-    type: "message",
-    content: {
-      type: "text",
-      text: "役員報酬を変更する場合の注意点を教えてください。",
-    },
-  },
-  nonText: {
-    type: "message",
-    content: {
-      type: "image",
-    },
-  },
+const payload = {
+  type: "message",
+  source: { userId: "smoke-test-reviewer", channelId: "smoke-test-channel" },
+  content: mode === "approval" ? { postback: "approvalId=missing&action=approve" } : { type: "text", text: "確認" },
 };
-
-if (!(mode in payloads) && mode !== "invalidSignature") {
-  console.error("Usage: node scripts/smoke-callback.mjs [url] [text|nonText|invalidSignature]");
-  process.exit(1);
-}
-
-const body = JSON.stringify(mode === "invalidSignature" ? payloads.text : payloads[mode]);
+const body = JSON.stringify(payload);
 const signature =
   mode === "invalidSignature"
     ? "invalid-signature"
@@ -40,12 +38,8 @@ const signature =
 
 const response = await fetch(callbackUrl, {
   method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "X-WORKS-Signature": signature,
-  },
+  headers: { "Content-Type": "application/json", "X-WORKS-Signature": signature },
   body,
 });
-
 console.log(`status=${response.status}`);
 console.log(await response.text());

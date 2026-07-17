@@ -1,130 +1,84 @@
-# LINE WORKS Bot + OpenAI Staff Review MVP
+# ApexBrain LINE問い合わせ承認ボット
 
-LINE WORKS Bot の Callback で顧客からの text メッセージを受信し、OpenAI Responses API で返信案を生成して、担当者確認用の LINE WORKS トークルームへ送信する Next.js App Router アプリです。
+顧問先からLINE公式アカウントへ届いた質問をGPTが分類し、返信案をLINE WORKSへ送ります。担当者が「承認して送信」を押した場合だけ、顧問先へ返信します。
 
-この MVP は顧客へ自動返信しません。担当者が LINE WORKS 上で返信案と確認事項を確認してから、最終判断して送信する前提です。
+```text
+顧問先（LINE）
+  → LINE公式アカウント Webhook
+  → GPTで分類・返信案作成
+  → LINE WORKSの職員トークルームへ承認ボタン付き通知
+  → 担当者が承認
+  → LINE Push APIで顧問先へ送信
+```
 
-## 技術構成
+## 実装済み機能
 
-- TypeScript
-- Next.js App Router
-- Node.js runtime
-- `POST /api/lineworks/callback`
-- LINE WORKS Callback 署名検証: `X-WORKS-Signature` + `LINEWORKS_BOT_SECRET` の HMAC-SHA256/Base64
-- OpenAI Responses API
-- LINE WORKS Service Account JWT 認証
-- LINE WORKS Bot API channel message send
-- Access Token のメモリキャッシュ
+- LINE公式アカウントのWebhook署名検証
+- テキスト質問の分類、緊急度判定、返信案、確認事項の構造化出力
+- LINE WORKSへの承認・却下ボタン付き通知
+- LINE WORKS Callbackの署名検証
+- 承認者の任意ホワイトリスト
+- 承認後のLINE Push送信
+- 二重送信を避ける案件ステータス遷移とLINEリトライキー
+- Webhook再送時の重複案件防止
+- Upstash Redis保存（本番）／メモリ保存（ローカル）
+
+## エンドポイント
+
+| 用途 | URL |
+|---|---|
+| LINE公式アカウント Webhook | `POST /api/line/callback` |
+| LINE WORKS Bot Callback | `POST /api/lineworks/callback` |
 
 ## セットアップ
 
 ```bash
 npm install
-cp .env.example .env.local
-```
-
-`.env.local` に以下を設定します。
-
-```bash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4.1-mini
-
-LINEWORKS_CLIENT_ID=
-LINEWORKS_CLIENT_SECRET=
-LINEWORKS_SERVICE_ACCOUNT=
-LINEWORKS_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-LINEWORKS_BOT_ID=
-LINEWORKS_BOT_SECRET=
-LINEWORKS_STAFF_CHANNEL_ID=
-```
-
-`LINEWORKS_PRIVATE_KEY` は改行を `\n` として 1 行で設定できます。実行時に PEM 形式へ戻します。
-
-## LINE WORKS 設定
-
-1. Developer Console で Bot を作成します。
-2. Bot Secret を取得し、`LINEWORKS_BOT_SECRET` に設定します。
-3. Bot ID を `LINEWORKS_BOT_ID` に設定します。
-4. Callback URL に以下を設定します。
-
-```text
-https://your-domain.example/api/lineworks/callback
-```
-
-5. Client App で Service Account と Private Key を発行します。
-6. Bot API 送信用に `bot.message` scope を利用できるようにします。
-7. 担当者確認用トークルームの channelId を `LINEWORKS_STAFF_CHANNEL_ID` に設定します。
-
-## 起動
-
-```bash
+copy .env.example .env.local
 npm run dev
 ```
 
-ローカルでは `http://localhost:3000/api/lineworks/callback` が Callback エンドポイントです。LINE WORKS の Callback URL には HTTPS が必要なため、公開環境へデプロイするか、検証時は HTTPS トンネルを利用してください。
+`.env.local` に `.env.example` の値を設定します。秘密情報をGitへコミットしないでください。
 
-## Vercel デプロイ
+### 1. OpenAI
 
-1. GitHub にこのリポジトリを push します。
-2. Vercel にログインし、`Add New...` -> `Project` を選択します。
-3. GitHub リポジトリ `lineworks-openai-bot` を Import します。
-4. Framework Preset は `Next.js` のままにします。
-5. Root Directory は変更せず、リポジトリのルートを使います。
-6. Environment Variables に `.env.local` と同じキーを登録します。
-7. `Deploy` を実行します。
-8. 発行された Vercel URL に `/api/lineworks/callback` を付けた URL を LINE WORKS の Callback URL に設定します。
+- `OPENAI_API_KEY`: OpenAI PlatformのProject API Key
+- `OPENAI_MODEL`: 既定は `gpt-4.1-mini`
 
-例:
+Responses APIのStructured Outputsを使い、分類結果をJSONスキーマで固定しています。
 
-```text
-https://lineworks-openai-bot.vercel.app/api/lineworks/callback
-```
+### 2. LINE公式アカウント
 
-Vercel に登録する環境変数:
+LINE Developers ConsoleでMessaging APIチャネルを準備します。
 
-```text
-OPENAI_API_KEY
-OPENAI_MODEL
-LINEWORKS_CLIENT_ID
-LINEWORKS_CLIENT_SECRET
-LINEWORKS_SERVICE_ACCOUNT
-LINEWORKS_PRIVATE_KEY
-LINEWORKS_BOT_ID
-LINEWORKS_BOT_SECRET
-LINEWORKS_STAFF_CHANNEL_ID
-```
+- `LINE_CHANNEL_SECRET`: Basic settingsのChannel secret
+- `LINE_CHANNEL_ACCESS_TOKEN`: Messaging APIのChannel access token
+- Webhook URL: `https://あなたのドメイン/api/line/callback`
+- Webhookを有効化
 
-## 処理フロー
+顧問先への送信は、承認待ち時間を考慮してReply APIではなくPush APIを使います。
 
-1. LINE WORKS Callback を raw body で受信します。
-2. `X-WORKS-Signature` を検証します。
-3. 署名検証に失敗した場合は `401` を返します。
-4. text メッセージ以外は `200` で無視します。
-5. 顧客質問文を OpenAI Responses API に渡します。
-6. GPT が返信案と確認事項を JSON で返します。
-7. 担当者用 LINE WORKS トークルームへ以下の形式で送信します。
+### 3. LINE WORKS
 
-```text
-【顧客からの質問】
-{customerMessage}
+LINE WORKS Developers ConsoleでBot、Service Account、Private Keyを準備します。
 
-【GPT返信案】
-{draftReply}
+- BotのCallback URL: `https://あなたのドメイン/api/lineworks/callback`
+- Callbackイベントを有効化
+- `bot.message` scopeを許可
+- Botを職員のトークルームへ追加
+- 対象トークルームのchannelIdを `LINEWORKS_STAFF_CHANNEL_ID` に設定
+- Private Keyは改行を `\n` にした1行の値として設定可能
 
-【確認事項】
-{checkItems}
+`LINEWORKS_APPROVER_USER_IDS` に承認可能な職員のLINE WORKS userIdをカンマ区切りで設定できます。空欄の場合は、そのBotのボタンを押せる全メンバーを許可します。本番では設定を推奨します。
 
-【注意】
-この返信案はAI生成です。送信前に担当者が内容を確認してください。
-```
+### 4. 案件保存
 
-## セキュリティとログ
+本番ではUpstash Redisを作成し、次を設定してください。
 
-- 顧客メッセージ本文はエラーログに出しません。
-- OpenAI API キー、LINE WORKS Client Secret、Bot Secret、Private Key はログに出しません。
-- LINE WORKS Access Token はプロセスメモリにのみキャッシュし、有効期限前に再取得します。
-- 署名検証は timing-safe comparison で行います。
-- Callback は必ず HTTPS で公開してください。
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+
+未設定の場合はプロセスメモリを使います。開発確認には使えますが、再起動やサーバーレスインスタンスの切替で案件が消えるため、本番運用には使用できません。
 
 ## 動作確認
 
@@ -133,32 +87,29 @@ npm run typecheck
 npm run build
 ```
 
-署名付き Callback の手動テストでは、送信する JSON 文字列と `LINEWORKS_BOT_SECRET` から HMAC-SHA256/Base64 の署名を作成し、`X-WORKS-Signature` ヘッダーに指定してください。
-
-### Callback スモークテスト
-
-開発サーバーを起動します。
+開発サーバーを起動した状態で、署名付きWebhookの入口だけを確認できます。
 
 ```bash
-npm run dev
-```
-
-別ターミナルで `.env.local` の `LINEWORKS_BOT_SECRET` を読み込める状態にして、署名 NG の確認をします。`401` が返れば正常です。
-
-```bash
+node scripts/smoke-line-webhook.mjs http://localhost:3000/api/line/callback empty
+node scripts/smoke-line-webhook.mjs http://localhost:3000/api/line/callback invalidSignature
 node scripts/smoke-callback.mjs http://localhost:3000/api/lineworks/callback invalidSignature
 ```
 
-text 以外のメッセージが無視されることを確認します。`200` と `{"ok":true,"ignored":true}` が返れば正常です。
+実際の質問テストはOpenAI、LINE WORKS、Redisの各設定が必要です。
 
-```bash
-node scripts/smoke-callback.mjs http://localhost:3000/api/lineworks/callback nonText
-```
+## 運用上の注意
 
-text メッセージの処理を確認します。このテストは OpenAI API と LINE WORKS Bot API まで実際に呼び出します。`200` と `{"ok":true}` が返り、担当者用トークルームに通知が届けば正常です。
+- AIの返信案は必ず担当者が確認し、税務判断を自動送信しません。
+- マイナンバー、本人確認書類、口座情報などをLINEで依頼しない運用にしてください。
+- 顧問先のLINE userId、質問本文、返信案は個人情報としてアクセス制御・保存期間を管理してください。
+- LINEとLINE WORKSのWebhookはraw bodyのまま署名検証してからJSON解析します。
+- ログにはAPIキー、アクセストークン、秘密鍵、顧客メッセージ本文を出しません。
 
-```bash
-node scripts/smoke-callback.mjs http://localhost:3000/api/lineworks/callback text
-```
+## 次の拡張候補
 
-本番の「LINE WORKS から Callback が届くか」は、公開 HTTPS URL を LINE WORKS Developer Console の Callback URL に設定し、Bot が参加しているトークルームから text メッセージを送って確認してください。
+- 返信案の編集画面
+- 顧問先マスタとの紐付け
+- 過去相談・契約範囲を検索するRAG
+- 添付ファイルの安全な受付
+- Teams承認への差し替え
+- 監査ログと管理画面

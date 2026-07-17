@@ -6,5 +6,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+tsconfig.tsbuildinfo
+desktop.ini
 lineworks_private_key_base64.txt
 lineworks_private_key_vercel_value.txt
