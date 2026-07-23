@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ReplyDraft } from "../lib/openai/generateReplyDraft.ts";
 import {
   buildCustomerReply,
+  buildReviewRequestReceipt,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   markAsAiAutoReply,
@@ -90,6 +91,12 @@ test("AI自動回答であることを文頭に一度だけ明示する", () => 
     "※AIによる自動回答です\n\n【結論】\n回答です。",
   );
   assert.equal(markAsAiAutoReply(marked), marked);
+});
+
+test("個別相談の受付後は回答待ちを自動案内する", () => {
+  const receipt = buildReviewRequestReceipt();
+  assert.match(receipt, /税理士への個別相談を受け付けました/);
+  assert.match(receipt, /回答まで、しばらくお待ちください/);
 });
 
 test("回答本文に公式根拠を補い、個別判断には有料確認の導線を付ける", () => {
