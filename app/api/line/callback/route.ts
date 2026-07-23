@@ -6,12 +6,24 @@ import {
   createApproval,
   getClientProfile,
   getConversationHistory,
+  transitionApproval,
   type ApprovalRecord,
 } from "@/lib/approvals/store";
+import { pushLineMessage } from "@/lib/line/client";
 import { verifyLineSignature } from "@/lib/line/verifySignature";
-import { sendStaffApprovalMessage } from "@/lib/lineworks/client";
+import {
+  sendStaffApprovalMessage,
+  sendStaffChannelMessage,
+} from "@/lib/lineworks/client";
 import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
 import { redactSensitiveText } from "@/lib/security/redaction";
+import {
+  buildCustomerReply,
+  buildReviewRequestReceipt,
+  isPricingInquiry,
+  isTaxProfessionalReviewRequest,
+  TAX_AI_PRICING_MESSAGE,
+} from "@/lib/tax/hybridService";
 
 export const runtime = "nodejs";
 
@@ -23,6 +35,10 @@ type LineEvent = {
 };
 
 type LineWebhookBody = { events?: unknown };
+
+function hybridAutoReplyEnabled(): boolean {
+  return process.env.LINE_HYBRID_AUTO_REPLY_ENABLED?.toLowerCase() !== "false";
+}
 
 function getTextEvent(event: LineEvent): { eventId: string; userId: string; text: string } | null {
   if (
@@ -52,8 +68,66 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     getConversationHistory(event.userId),
     getClientProfile(event.userId),
   ]);
-  const draft = await generateReplyDraft(event.text, conversationHistory, clientProfile);
   const now = new Date().toISOString();
+
+  if (isPricingInquiry(event.text)) {
+    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID());
+    await Promise.all([
+      appendConversationMessage(event.userId, {
+        role: "customer",
+        text: event.text,
+        createdAt: now,
+      }),
+      appendConversationMessage(event.userId, {
+        role: "assistant",
+        text: TAX_AI_PRICING_MESSAGE,
+        createdAt: now,
+      }),
+    ]);
+    return;
+  }
+
+  if (isTaxProfessionalReviewRequest(event.text)) {
+    const recentContext = conversationHistory
+      .slice(-6)
+      .map((message) => `${message.role === "customer" ? "顧客" : "AI"}: ${message.text}`)
+      .join("\n\n");
+    await sendStaffChannelMessage(
+      [
+        "【公式LINE・税理士確認依頼】",
+        `受付ID: ${id}`,
+        `LINE利用者: ${createHash("sha256").update(event.userId).digest("hex").slice(0, 12)}`,
+        "",
+        redactSensitiveText(recentContext || event.text).slice(0, 3000),
+      ].join("\n"),
+    );
+    const receipt = buildReviewRequestReceipt();
+    await pushLineMessage(event.userId, receipt, randomUUID());
+    await Promise.all([
+      appendConversationMessage(event.userId, {
+        role: "customer",
+        text: event.text,
+        createdAt: now,
+      }),
+      appendConversationMessage(event.userId, {
+        role: "assistant",
+        text: receipt,
+        createdAt: now,
+      }),
+    ]);
+    return;
+  }
+
+  const generatedDraft = await generateReplyDraft(
+    event.text,
+    conversationHistory,
+    clientProfile,
+  );
+  const draft = {
+    ...generatedDraft,
+    draftReply: buildCustomerReply(generatedDraft),
+  };
+  const autoReply = hybridAutoReplyEnabled();
   const record: ApprovalRecord = {
     id,
     sourceEventId: event.eventId,
@@ -62,7 +136,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     lineRetryKey: randomUUID(),
     ...draft,
     revision: 0,
-    status: "pending",
+    status: autoReply ? "sending" : "pending",
     createdAt: now,
     updatedAt: now,
   };
@@ -107,7 +181,32 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
         errorMessage: error instanceof Error ? error.message : "Unknown error",
       });
     }
-    await sendStaffApprovalMessage(record);
+    if (autoReply) {
+      try {
+        await pushLineMessage(record.lineUserId, record.draftReply, record.lineRetryKey);
+        await transitionApproval(record.id, "sending", "sent", "hybrid-auto");
+        await appendConversationMessage(record.lineUserId, {
+          role: "assistant",
+          text: record.draftReply,
+          createdAt: new Date().toISOString(),
+        });
+        await appendAuditRecord({
+          approvalId: record.id,
+          eventType: "reply_sent",
+          recordedAt: new Date().toISOString(),
+          answer: record.draftReply,
+          answerLevel: record.answerLevel,
+          confidence: record.confidence,
+          model: record.model,
+          promptVersion: record.promptVersion,
+        });
+      } catch (error) {
+        await transitionApproval(record.id, "sending", "pending", "hybrid-auto");
+        throw error;
+      }
+    } else {
+      await sendStaffApprovalMessage(record);
+    }
   }
 }
 
