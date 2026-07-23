@@ -37,6 +37,12 @@ export function isTaxProfessionalReviewPostback(data: string): boolean {
   return params.get("action") === "tax_professional_review";
 }
 
+export function markAsAiAutoReply(reply: string): string {
+  const trimmed = reply.trim();
+  if (trimmed.startsWith("※AIによる自動回答です")) return trimmed;
+  return `※AIによる自動回答です\n\n${trimmed}`;
+}
+
 export function shouldAutoReply(draft: ReplyDraft): boolean {
   return (
     draft.answerLevel !== "C" &&

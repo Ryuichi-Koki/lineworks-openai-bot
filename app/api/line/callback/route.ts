@@ -23,6 +23,7 @@ import {
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   isTaxProfessionalReviewRequest,
+  markAsAiAutoReply,
   TAX_AI_PRICING_MESSAGE,
 } from "@/lib/tax/hybridService";
 
@@ -164,11 +165,12 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     conversationHistory,
     clientProfile,
   );
+  const autoReply = hybridAutoReplyEnabled();
+  const customerReply = buildCustomerReply(generatedDraft);
   const draft = {
     ...generatedDraft,
-    draftReply: buildCustomerReply(generatedDraft),
+    draftReply: autoReply ? markAsAiAutoReply(customerReply) : customerReply,
   };
-  const autoReply = hybridAutoReplyEnabled();
   const record: ApprovalRecord = {
     id,
     sourceEventId: event.eventId,

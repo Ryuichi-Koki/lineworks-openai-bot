@@ -6,6 +6,7 @@ import {
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   isTaxProfessionalReviewRequest,
+  markAsAiAutoReply,
   shouldAutoReply,
   TAX_AI_PRICING_MESSAGE,
 } from "../lib/tax/hybridService.ts";
@@ -84,6 +85,15 @@ test("検証済みの一般回答は自動回答可能と判定する", () => {
     false,
   );
   assert.equal(shouldAutoReply(draft({ sources: [], sourceVerification: "unverified" })), false);
+});
+
+test("AI自動回答であることを文頭に一度だけ明示する", () => {
+  const marked = markAsAiAutoReply("【結論】\n回答です。");
+  assert.equal(
+    marked,
+    "※AIによる自動回答です\n\n【結論】\n回答です。",
+  );
+  assert.equal(markAsAiAutoReply(marked), marked);
 });
 
 test("回答本文に公式根拠を補い、個別判断には有料確認の導線を付ける", () => {
