@@ -459,8 +459,8 @@ async function handleConsultationReplyText(
     );
     return { status: "consultation_confirming" };
   }
-  if (replyText.length > 10000) {
-    await sendStaffChannelMessage("回答文は10,000文字以内で入力してください。");
+  if (replyText.length > 1800) {
+    await sendStaffChannelMessage("回答文は1,800文字以内で入力してください。");
     return { status: "reply_too_long" };
   }
 

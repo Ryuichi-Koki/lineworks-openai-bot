@@ -134,17 +134,13 @@ export async function sendStaffConsultationMessage(
 export async function sendStaffConsultationConfirmation(
   record: ConsultationRecord,
 ): Promise<void> {
+  await sendStaffChannelMessage(
+    ["【公式LINEへ送信する回答全文】", record.replyText ?? ""].join("\n"),
+  );
   await sendStaffContent({
     type: "button_template",
-    contentText: truncate(
-      [
-        "【公式LINEへ送信する回答】",
-        record.replyText ?? "",
-        "",
-        "内容を確認して操作してください。",
-      ].join("\n"),
-      1000,
-    ),
+    contentText:
+      "上記の回答全文を確認し、公式LINEへ送信する場合だけ送信ボタンを押してください。",
     actions: [
       {
         type: "message",
