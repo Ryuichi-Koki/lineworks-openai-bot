@@ -113,7 +113,7 @@ test("長文回答をLINE最大3通へ安全に分割する", () => {
   assert.ok(messages.every((message) => message.length <= 4500));
 });
 
-test("AI回答の最後に税理士個別相談のpostbackボタンを付ける", async () => {
+test("必要なAI回答の後に税理士個別相談のボタンテンプレートを付ける", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   let requestBody: unknown;
@@ -141,9 +141,43 @@ test("AI回答の最後に税理士個別相談のpostbackボタンを付ける"
     Record<string, unknown>
   >;
   const lastMessage = messages.at(-1);
-  const quickReply = lastMessage?.quickReply as { items?: Array<Record<string, unknown>> };
-  const action = quickReply.items?.[0]?.action as Record<string, unknown>;
+  assert.equal(lastMessage?.type, "template");
+  const template = lastMessage?.template as {
+    type?: string;
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.equal(template.type, "buttons");
+  const action = template.actions?.[0] as Record<string, unknown>;
   assert.equal(action.type, "postback");
   assert.equal(action.label, "税理士へ個別相談");
   assert.equal(action.data, "action=tax_professional_review");
+});
+
+test("通常のAI回答には税理士個別相談ボタンを付けない", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "通常回答", randomUUID());
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  assert.ok(requestBody && typeof requestBody === "object");
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.type, "text");
 });

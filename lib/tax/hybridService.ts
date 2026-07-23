@@ -9,7 +9,7 @@ export const TAX_AI_PRICING_MESSAGE = [
   "・追加の税理士確認：1件3,300円",
   "",
   "複雑な申告や継続的な対応が必要な場合は、申告契約・顧問契約をご案内します。",
-  "税理士確認をご希望の場合は「税理士確認を依頼」と返信してください。",
+  "税理士確認が必要な回答では、個別相談ボタンをご案内します。",
 ].join("\n");
 
 const PRICING_PATTERNS = [
@@ -18,18 +18,8 @@ const PRICING_PATTERNS = [
   /使い放題/,
 ];
 
-const REVIEW_REQUEST_PATTERNS = [
-  /税理士確認を依頼/,
-  /税理士.{0,8}(確認|相談).{0,8}(希望|依頼|お願い|申込)/,
-  /(確認|相談).{0,8}(希望|依頼|お願い|申込).{0,8}税理士/,
-];
-
 export function isPricingInquiry(message: string): boolean {
   return PRICING_PATTERNS.some((pattern) => pattern.test(message));
-}
-
-export function isTaxProfessionalReviewRequest(message: string): boolean {
-  return REVIEW_REQUEST_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export function isTaxProfessionalReviewPostback(data: string): boolean {
@@ -75,7 +65,7 @@ export function buildCustomerReply(draft: ReplyDraft): string {
       [
         "【税理士確認のご案内】",
         "この相談は個別事情によって結論が変わるため、AIは税理士確認が必要と判定しました。",
-        "確認をご希望の場合は「税理士確認を依頼」と返信してください。",
+        "税理士への個別相談をおすすめします。ご希望の場合は、回答下のボタンを押してください。",
         "料金：月1件付き3,300円／月、月3件付き7,700円／月、追加1件3,300円",
       ].join("\n"),
     );

@@ -5,7 +5,6 @@ import {
   buildCustomerReply,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
-  isTaxProfessionalReviewRequest,
   markAsAiAutoReply,
   shouldAutoReply,
   TAX_AI_PRICING_MESSAGE,
@@ -62,10 +61,7 @@ test("料金の質問には固定された料金表を返す", () => {
   assert.match(TAX_AI_PRICING_MESSAGE, /追加の税理士確認：1件3,300円/);
 });
 
-test("税理士確認の明示的な依頼だけを受付対象にする", () => {
-  assert.equal(isTaxProfessionalReviewRequest("税理士確認を依頼"), true);
-  assert.equal(isTaxProfessionalReviewRequest("税理士に相談をお願いします"), true);
-  assert.equal(isTaxProfessionalReviewRequest("税理士確認は必要ですか？"), false);
+test("税理士個別相談ボタンのpostbackだけを受付対象にする", () => {
   assert.equal(
     isTaxProfessionalReviewPostback("action=tax_professional_review"),
     true,
@@ -108,6 +104,7 @@ test("回答本文に公式根拠を補い、個別判断には有料確認の�
     }),
   );
   assert.match(review, /【税理士確認のご案内】/);
-  assert.match(review, /税理士確認を依頼/);
+  assert.match(review, /回答下のボタン/);
+  assert.doesNotMatch(review, /税理士確認を依頼/);
   assert.match(review, /追加1件3,300円/);
 });

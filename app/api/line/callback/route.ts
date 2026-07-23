@@ -22,7 +22,6 @@ import {
   buildReviewRequestReceipt,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
-  isTaxProfessionalReviewRequest,
   markAsAiAutoReply,
   TAX_AI_PRICING_MESSAGE,
 } from "@/lib/tax/hybridService";
@@ -137,9 +136,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   const now = new Date().toISOString();
 
   if (isPricingInquiry(event.text)) {
-    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID(), {
-      includeTaxReviewButton: true,
-    });
+    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID());
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
@@ -152,11 +149,6 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
         createdAt: now,
       }),
     ]);
-    return;
-  }
-
-  if (isTaxProfessionalReviewRequest(event.text)) {
-    await notifyTaxProfessionalReview(event, conversationHistory, event.text);
     return;
   }
 
@@ -227,7 +219,8 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     if (autoReply) {
       try {
         await pushLineMessage(record.lineUserId, record.draftReply, record.lineRetryKey, {
-          includeTaxReviewButton: true,
+          includeTaxReviewButton:
+            record.requiresTaxProfessionalReview || record.answerLevel === "C",
         });
         await transitionApproval(record.id, "sending", "sent", "hybrid-auto");
         await appendConversationMessage(record.lineUserId, {

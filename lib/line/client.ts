@@ -17,27 +17,28 @@ export async function pushLineMessage(
   options: { includeTaxReviewButton?: boolean } = {},
 ): Promise<void> {
   const messages = splitLineMessages(maskLineOutput(text));
-  const messagePayloads = messages.map((messageText, index) => ({
+  const messagePayloads: Array<Record<string, unknown>> = messages.map((messageText) => ({
     type: "text",
     text: messageText,
-    ...(options.includeTaxReviewButton && index === messages.length - 1
-      ? {
-          quickReply: {
-            items: [
-              {
-                type: "action",
-                action: {
-                  type: "postback",
-                  label: "税理士へ個別相談",
-                  data: "action=tax_professional_review",
-                  displayText: "税理士へ個別相談",
-                },
-              },
-            ],
-          },
-        }
-      : {}),
   }));
+  if (options.includeTaxReviewButton) {
+    messagePayloads.push({
+      type: "template",
+      altText: "税理士へ個別相談",
+      template: {
+        type: "buttons",
+        text: "税理士への個別相談をご希望の場合は、下のボタンを押してください。",
+        actions: [
+          {
+            type: "postback",
+            label: "税理士へ個別相談",
+            data: "action=tax_professional_review",
+            displayText: "税理士へ個別相談",
+          },
+        ],
+      },
+    });
+  }
   const response = await fetch(`${LINE_API_BASE_URL}/message/push`, {
     method: "POST",
     headers: {
