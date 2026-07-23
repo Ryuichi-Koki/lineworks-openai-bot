@@ -1,6 +1,5 @@
 import { maskLineOutput } from "../security/redaction.ts";
-
-const LINE_API_BASE_URL = "https://api.line.me/v2/bot";
+import { lineApiBaseUrl } from "./config.ts";
 
 function requireEnv(name: string): string {
   const value = process.env[name] || process.env[`\uFEFF${name}`];
@@ -14,7 +13,15 @@ export async function pushLineMessage(
   userId: string,
   text: string,
   retryKey: string,
-  options: { includeTaxReviewButton?: boolean } = {},
+  options: {
+    includeTaxReviewButton?: boolean;
+    includeMembershipJoinButton?: boolean;
+    membershipJoinUrl?: string;
+    includeMembershipManagementButton?: boolean;
+    membershipManagementUrl?: string;
+    includeMembershipMenu?: boolean;
+    includePersistentMenuButton?: boolean;
+  } = {},
 ): Promise<void> {
   const messages = splitLineMessages(maskLineOutput(text));
   const messagePayloads: Array<Record<string, unknown>> = messages.map((messageText) => ({
@@ -39,7 +46,97 @@ export async function pushLineMessage(
       },
     });
   }
-  const response = await fetch(`${LINE_API_BASE_URL}/message/push`, {
+  const joinUrl =
+    options.membershipJoinUrl?.trim() ||
+    process.env.LINE_MEMBERSHIP_JOIN_URL?.trim();
+  if (options.includeMembershipJoinButton && joinUrl) {
+    messagePayloads.push({
+      type: "template",
+      altText: "あんしん会員に登録する",
+      template: {
+        type: "buttons",
+        text: "あんしん会員では、AI回答100回と税理士確認1件をご利用いただけます。",
+        actions: [
+          {
+            type: "uri",
+            label: "あんしん会員に登録する",
+            uri: joinUrl,
+          },
+        ],
+      },
+    });
+  }
+  const managementUrl = options.membershipManagementUrl?.trim();
+  if (options.includeMembershipManagementButton && managementUrl) {
+    messagePayloads.push({
+      type: "template",
+      altText: "あんしん会員の契約を管理する",
+      template: {
+        type: "buttons",
+        text: "Stripeの安全な契約管理画面で、退会予約、支払方法、請求履歴を確認できます。",
+        actions: [
+          {
+            type: "uri",
+            label: "退会・契約管理へ",
+            uri: managementUrl,
+          },
+        ],
+      },
+    });
+  }
+  if (options.includeMembershipMenu) {
+    messagePayloads.push({
+      type: "template",
+      altText: "会員メニュー",
+      template: {
+        type: "buttons",
+        title: "会員メニュー",
+        text: "ご希望の手続きを選択してください。",
+        actions: [
+          {
+            type: "message",
+            label: "有料会員になる",
+            text: "料金を教えて",
+          },
+          {
+            type: "postback",
+            label: "無料会員で始める",
+            data: "action=select_free_membership",
+            displayText: "無料会員で始める",
+          },
+          {
+            type: "postback",
+            label: "税理士へ相談",
+            data: "action=start_tax_review_intake",
+            displayText: "税理士へ相談",
+          },
+          {
+            type: "message",
+            label: "退会・契約管理",
+            text: "退会したい",
+          },
+        ],
+      },
+    });
+  }
+  if (options.includePersistentMenuButton !== false) {
+    const lastMessage = messagePayloads.at(-1);
+    if (lastMessage) {
+      lastMessage.quickReply = {
+        items: [
+          {
+            type: "action",
+            action: {
+              type: "message",
+              label: "会員メニュー",
+              text: "メニュー",
+            },
+          },
+        ],
+      };
+    }
+  }
+  const response = await fetch(`${lineApiBaseUrl()}/message/push`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${requireEnv("LINE_CHANNEL_ACCESS_TOKEN")}`,
@@ -57,6 +154,65 @@ export async function pushLineMessage(
     throw new Error(
       `LINE push message failed with status ${response.status}: ${responseText.slice(0, 200)}`,
     );
+  }
+}
+
+export async function pushLineReviewConfirmation(
+  userId: string,
+  summary: string,
+  reviewRequestId: string,
+  retryKey: string,
+): Promise<void> {
+  const safeSummary = maskLineOutput(summary).slice(0, 1500);
+  const response = await fetch(`${lineApiBaseUrl()}/message/push`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${requireEnv("LINE_CHANNEL_ACCESS_TOKEN")}`,
+      "Content-Type": "application/json",
+      "X-Line-Retry-Key": retryKey,
+    },
+    body: JSON.stringify({
+      to: userId,
+      messages: [
+        {
+          type: "template",
+          altText: "税理士確認の依頼内容をご確認ください",
+          template: {
+            type: "buttons",
+            text: `次の内容で税理士へ確認します。\n\n${safeSummary}`.slice(0, 160),
+            actions: [
+              {
+                type: "postback",
+                label: "この内容で依頼する",
+                data: `action=submit_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
+                displayText: "この内容で依頼する",
+              },
+              {
+                type: "postback",
+                label: "キャンセル",
+                data: `action=cancel_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
+                displayText: "税理士確認をキャンセル",
+              },
+            ],
+          },
+          quickReply: {
+            items: [
+              {
+                type: "action",
+                action: {
+                  type: "message",
+                  label: "会員メニュー",
+                  text: "メニュー",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }),
+  });
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`LINE review confirmation failed: ${response.status}`);
   }
 }
 

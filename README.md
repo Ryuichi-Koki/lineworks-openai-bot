@@ -49,9 +49,55 @@
 
 回答文を入力しただけでは公式LINEへ送信されません。最終確認ボタンを押した場合だけ送信されます。
 
+## LINEメンバーシップと利用回数管理
+
+課金はStripeではなく、LINE公式アカウントのメンバーシップを利用します。
+
+- 無料会員：毎月AI最終回答10回、税理士確認なし
+- あんしん会員：月3,300円（税込）、契約期間ごとにAI最終回答100回、税理士確認1案件
+- 将来の上位プラン：月7,700円（税込）、AI最終回答200回、税理士確認3案件（初期状態は無効）
+
+友だち追加または会員DBへの初回登録時には、無料会員と有料のあんしん会員を
+選べる会員メニューを表示します。通常のLINE返信にも「会員メニュー」クイック
+ボタンが付き、料金・無料利用・税理士相談・退会／契約管理をいつでも
+呼び出せます。有料契約中に無料会員を選んでも即時に権利を変更せず、
+Stripe Customer Portalでの期間末解約へ案内します。
+
+モバイル版LINEのトーク画面下部へ常設する場合は、Messaging APIのデフォルト
+リッチメニューを使用します。`assets/line-rich-menu.png` を用意したうえで、
+`pnpm setup:line:rich-menu` は画像と操作定義をローカル検証します。
+`pnpm setup:line:rich-menu -- --status` は対象アカウントを読み取り確認し、
+`--apply --confirm-account-wide-change` はデフォルトリッチメニューを実際に
+変更するため明示承認後だけ実行します。誤設定防止のため
+`LINE_RICH_MENU_EXPECTED_BASIC_ID` と
+アクセストークンのBasic IDが一致しなければ停止します。
+
+LINEの加入・継続課金・退会Webhookを受け、`line_user_id`を主キーとして契約を同期します。
+WebhookイベントIDと利用イベントの冪等キーにより、再送時の二重処理を防ぎます。
+AI利用枠は生成前に予約し、LINE送信成功後に確定します。確認質問・生成失敗・送信失敗は取消します。
+
+会員・利用台帳にはSupabase互換PostgreSQLを使います。`migrations/001_membership_billing.sql`
+をテスト用DBへ適用し、次を設定してください。
+
+- `DATABASE_URL`
+- `DATABASE_SSL_MODE`（Supabaseでは`require`）
+- `LINE_MEMBERSHIP_ANSHIN_ID`
+- `LINE_MEMBERSHIP_JOIN_URL`
+
+LINE Official Account Managerで月額3,300円の「あんしん会員」を作成・審査公開し、
+Messaging APIのWebhookを有効にします。加入中のプランIDを
+`LINE_MEMBERSHIP_ANSHIN_ID`へ設定してください。
+
+管理画面は`GET /admin/members`です。HTTP Basic認証とCSRF検証を行うため、
+`ADMIN_DASHBOARD_USER`、`ADMIN_DASHBOARD_PASSWORD`、`ADMIN_SESSION_SECRET`を設定します。
+会員検索、利用状況、利用履歴、誤カウント取消、LINE会員情報の再同期を利用できます。
+取消操作は変更者・日時・変更前後・理由を監査ログへ残します。
+
+すべての設定とテストが完了するまで`MEMBERSHIP_BILLING_ENABLED=false`のままにしてください。
+この状態では既存利用者の回答回数を制限しません。
+
 料金表はモデルに生成させず、`lib/tax/hybridService.ts` の固定文を使用します。
-現時点の実装範囲は申込受付と職員引継ぎまでです。決済、契約状態の同期、
-無料月10回・各プランの利用回数制御は、決済／会員基盤との接続後に実装してください。
+税理士確認は、相談ボタン→要約確認→「この内容で依頼する」→LINE WORKS通知の順です。
 
 `LINE_HYBRID_AUTO_REPLY_ENABLED=false` の場合だけ、
 従来どおり全件をLINE WORKSで承認してから送信します。未設定時はハイブリッド回答が有効です。
@@ -62,6 +108,7 @@
 |---|---|
 | LINE公式アカウント Webhook | `POST /api/line/callback` |
 | LINE WORKS Bot Callback | `POST /api/lineworks/callback` |
+| 会員管理画面 | `GET /admin/members` |
 
 ## セットアップ
 
@@ -140,6 +187,19 @@ LINE WORKS Developers ConsoleでBot、Service Account、Private Keyを準備し�
 
 監査ログは案件ごとに `apexbrain:audit:<案件ID>` へ保存します。質問はマスキング後の文面、
 回答、出典URL、根拠引用、取得日時、モデル、プロンプト版、信頼度、担当者IDのハッシュを記録します。
+
+### 6. 会員DBとテスト公開
+
+1. SupabaseまたはPostgreSQLでテスト用プロジェクトを作成
+2. `migrations/001_membership_billing.sql`を適用
+3. サーバー専用の`DATABASE_URL`を設定
+4. LINE Official Account Managerで「あんしん会員」を作成・公開
+5. プランIDと加入URLを環境変数へ設定
+6. テスト用アカウントで加入・更新・退会Webhookを確認
+7. 管理画面の認証・検索・誤カウント取消を確認
+8. 人間が結果を確認した後だけ`MEMBERSHIP_BILLING_ENABLED=true`に変更
+
+本番課金、本番デプロイ、既存顧客データの移行は別作業です。
 
 ## 動作確認
 

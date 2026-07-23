@@ -20,6 +20,8 @@ export type ApprovalRecord = ReplyDraft & {
   updatedAt: string;
   reviewerUserId?: string;
   revision?: number;
+  usageEventId?: string;
+  responseType?: "clarification" | "final_answer";
 };
 
 export type RevisionSession = {

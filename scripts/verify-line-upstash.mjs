@@ -5,7 +5,7 @@ if (!existsSync(".env.local")) {
 }
 
 const env = {};
-for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
+for (const line of readFileSync(".env.local", "utf8").split(/\r\n|\n|\r/u)) {
   if (!line || line.startsWith("#") || !line.includes("=")) continue;
   const [key, ...parts] = line.split("=");
   env[key.replace(/^\uFEFF/, "")] = parts.join("=").replace(/^['"]|['"]$/g, "");

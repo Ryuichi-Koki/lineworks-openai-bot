@@ -4,6 +4,7 @@ import type { ReplyDraft } from "../lib/openai/generateReplyDraft.ts";
 import {
   buildCustomerReply,
   buildReviewRequestReceipt,
+  isMembershipCancellationInquiry,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   markAsAiAutoReply,
@@ -56,10 +57,11 @@ function draft(overrides: Partial<ReplyDraft> = {}): ReplyDraft {
 
 test("料金の質問には固定された料金表を返す", () => {
   assert.equal(isPricingInquiry("AI使い放題はいくらですか？"), true);
+  assert.equal(isPricingInquiry("料金を教えて"), true);
   assert.equal(isPricingInquiry("この取引の税金はいくらですか？"), false);
-  assert.match(TAX_AI_PRICING_MESSAGE, /無料（月10回まで）/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /月3件：月7,700円/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /追加の税理士確認：1件3,300円/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /無料会員：月額0円/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /あんしん会員：月額3,300円/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /税理士確認1案件/);
 });
 
 test("税理士個別相談ボタンのpostbackだけを受付対象にする", () => {
@@ -68,6 +70,18 @@ test("税理士個別相談ボタンのpostbackだけを受付対象にする", 
     true,
   );
   assert.equal(isTaxProfessionalReviewPostback("action=other"), false);
+});
+
+test("会員契約の退会・解約依頼だけを契約管理導線として検出する", () => {
+  assert.equal(isMembershipCancellationInquiry("退会したい"), true);
+  assert.equal(
+    isMembershipCancellationInquiry("あんしん会員を解約したいです"),
+    true,
+  );
+  assert.equal(
+    isMembershipCancellationInquiry("解約した取引の違約金は課税されますか"),
+    false,
+  );
 });
 
 test("検証済みの一般回答は自動回答可能と判定する", () => {
@@ -113,5 +127,5 @@ test("回答本文に公式根拠を補い、個別判断には有料確認の�
   assert.match(review, /【税理士確認のご案内】/);
   assert.match(review, /回答下のボタン/);
   assert.doesNotMatch(review, /税理士確認を依頼/);
-  assert.match(review, /追加1件3,300円/);
+  assert.match(review, /月額3,300円/);
 });

@@ -19,6 +19,7 @@ import {
   type ApprovalRecord,
 } from "../lib/approvals/store.ts";
 import { pushLineMessage, splitLineMessages } from "../lib/line/client.ts";
+import { lineApiBaseUrl } from "../lib/line/config.ts";
 import { verifyLineSignature } from "../lib/line/verifySignature.ts";
 import { verifyLineWorksSignature } from "../lib/lineworks/verifySignature.ts";
 
@@ -253,4 +254,180 @@ test("通常のAI回答には税理士個別相談ボタンを付けない", asy
   >;
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.type, "text");
+});
+
+test("初回登録用メニューに有料会員と無料会員の両方を表示する", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage(
+      "line-user",
+      "ご登録ありがとうございます。",
+      randomUUID(),
+      { includeMembershipMenu: true },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const menu = messages.at(-1);
+  assert.equal(menu?.type, "template");
+  const template = menu?.template as {
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(
+    template.actions?.map((action) => action.label),
+    ["有料会員になる", "無料会員で始める", "税理士へ相談", "退会・契約管理"],
+  );
+  assert.equal(template.actions?.[0]?.type, "message");
+  assert.equal(template.actions?.[0]?.text, "料金を教えて");
+  assert.equal(template.actions?.[1]?.type, "postback");
+  assert.equal(
+    template.actions?.[1]?.data,
+    "action=select_free_membership",
+  );
+  assert.equal(
+    template.actions?.[2]?.data,
+    "action=start_tax_review_intake",
+  );
+  assert.equal(template.actions?.[3]?.text, "退会したい");
+});
+
+test("通常返信からいつでも会員メニューを呼び出せる", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "通常回答", randomUUID());
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const quickReply = messages.at(-1)?.quickReply as {
+    items?: Array<{ action?: Record<string, unknown> }>;
+  };
+  assert.equal(quickReply.items?.[0]?.action?.label, "会員メニュー");
+  assert.equal(quickReply.items?.[0]?.action?.text, "メニュー");
+});
+
+test("料金案内には指定されたStripe Checkout URLだけを登録ボタンへ設定する", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "料金案内", randomUUID(), {
+      includeMembershipJoinButton: true,
+      membershipJoinUrl: "https://checkout.stripe.com/c/pay/test-session",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const template = messages.at(-1)?.template as {
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.equal(template.actions?.[0]?.type, "uri");
+  assert.equal(
+    template.actions?.[0]?.uri,
+    "https://checkout.stripe.com/c/pay/test-session",
+  );
+});
+
+test("LINE APIの差し替えはローカルテストURLだけを許可する", () => {
+  const originalOverride = process.env.LINE_API_BASE_URL;
+  try {
+    process.env.LINE_API_BASE_URL = "http://127.0.0.1:3200/v2/bot";
+    assert.equal(lineApiBaseUrl(), "http://127.0.0.1:3200/v2/bot");
+
+    process.env.LINE_API_BASE_URL = "https://example.com/v2/bot";
+    assert.throws(() => lineApiBaseUrl(), /local tests/);
+  } finally {
+    if (originalOverride === undefined) {
+      delete process.env.LINE_API_BASE_URL;
+    } else {
+      process.env.LINE_API_BASE_URL = originalOverride;
+    }
+  }
+});
+
+test("退会案内にはStripe Customer Portalの契約管理ボタンを設定する", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "退会手続きのご案内", randomUUID(), {
+      includeMembershipManagementButton: true,
+      membershipManagementUrl:
+        "https://billing.stripe.com/p/session/test_portal_session",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const template = messages.at(-1)?.template as {
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.equal(template.actions?.[0]?.type, "uri");
+  assert.equal(template.actions?.[0]?.label, "退会・契約管理へ");
+  assert.equal(
+    template.actions?.[0]?.uri,
+    "https://billing.stripe.com/p/session/test_portal_session",
+  );
 });

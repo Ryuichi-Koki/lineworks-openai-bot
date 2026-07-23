@@ -17,6 +17,11 @@ import {
 } from "@/lib/approvals/store";
 import { pushLineMessage } from "@/lib/line/client";
 import {
+  cancelUsage,
+  consumeUsage,
+  membershipBillingEnabled,
+} from "@/lib/membership/store";
+import {
   sendStaffApprovalMessage,
   sendStaffChannelMessage,
   sendStaffConsultationConfirmation,
@@ -154,6 +159,9 @@ async function handleApproval(
 
   try {
     await pushLineMessage(claimed.lineUserId, claimed.draftReply, claimed.lineRetryKey);
+    if (membershipBillingEnabled() && claimed.usageEventId) {
+      await consumeUsage(claimed.usageEventId);
+    }
     await transitionApproval(approvalId, "sending", "sent", reviewerUserId);
     try {
       await appendAuditRecord({
@@ -191,6 +199,9 @@ async function handleApproval(
     );
     return { status: "sent" };
   } catch (error) {
+    if (membershipBillingEnabled() && claimed.usageEventId) {
+      await cancelUsage(claimed.usageEventId);
+    }
     await transitionApproval(approvalId, "sending", "pending", reviewerUserId);
     throw error;
   }
@@ -208,6 +219,9 @@ async function handleRejection(
   if (!rejected) {
     const current = await getApproval(approvalId);
     return { status: current?.status ?? "not_found" };
+  }
+  if (membershipBillingEnabled() && rejected.usageEventId) {
+    await cancelUsage(rejected.usageEventId);
   }
   await sendStaffChannelMessage(
     `⏸️ 返信案を却下しました。顧問先には送信していません。\n案件ID: ${rejected.id}`,

@@ -8,5 +8,10 @@ export default defineConfig([
       "react/display-name": "off",
     },
   },
-  globalIgnores([".next/**", "node_modules/**", "tsconfig.tsbuildinfo"]),
+  globalIgnores([
+    ".next/**",
+    ".next-*/**",
+    "node_modules/**",
+    "tsconfig.tsbuildinfo",
+  ]),
 ]);

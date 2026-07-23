@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 function loadEnvFile() {
   if (!existsSync(".env.local")) return;
-  for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
+  for (const line of readFileSync(".env.local", "utf8").split(/\r\n|\n|\r/u)) {
     if (!line || line.startsWith("#") || !line.includes("=")) continue;
     const [rawKey, ...parts] = line.split("=");
     const key = rawKey.replace(/^\uFEFF/, "");

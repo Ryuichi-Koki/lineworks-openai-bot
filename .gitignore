@@ -1,5 +1,7 @@
 .next
+.next-*
 node_modules
+.tools
 .env
 .env*.local
 npm-debug.log*
@@ -10,3 +12,5 @@ tsconfig.tsbuildinfo
 desktop.ini
 lineworks_private_key_base64.txt
 lineworks_private_key_vercel_value.txt
+_codex_backup_*/
+_codex_retired_*/
