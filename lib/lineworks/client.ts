@@ -1,5 +1,5 @@
 import type { ApprovalRecord } from "@/lib/approvals/store";
-import { getLineWorksAccessToken } from "./auth";
+import { getLineWorksAccessToken } from "./auth.ts";
 
 const LINEWORKS_API_BASE_URL = "https://www.worksapis.com/v1.0";
 
@@ -47,7 +47,7 @@ async function sendStaffContent(content: Record<string, unknown>): Promise<void>
 }
 
 export async function sendStaffChannelMessage(text: string): Promise<void> {
-  await sendStaffContent({ type: "text", text });
+  await sendStaffContent({ type: "text", text: truncate(text, 1900) });
 }
 
 function truncate(value: string, maxLength: number): string {
