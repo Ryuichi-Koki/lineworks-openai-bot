@@ -32,6 +32,11 @@ export function isTaxProfessionalReviewRequest(message: string): boolean {
   return REVIEW_REQUEST_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+export function isTaxProfessionalReviewPostback(data: string): boolean {
+  const params = new URLSearchParams(data);
+  return params.get("action") === "tax_professional_review";
+}
+
 export function shouldAutoReply(draft: ReplyDraft): boolean {
   return (
     draft.answerLevel !== "C" &&

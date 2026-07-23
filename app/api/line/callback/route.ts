@@ -21,6 +21,7 @@ import {
   buildCustomerReply,
   buildReviewRequestReceipt,
   isPricingInquiry,
+  isTaxProfessionalReviewPostback,
   isTaxProfessionalReviewRequest,
   TAX_AI_PRICING_MESSAGE,
 } from "@/lib/tax/hybridService";
@@ -32,9 +33,13 @@ type LineEvent = {
   webhookEventId?: unknown;
   source?: { type?: unknown; userId?: unknown };
   message?: { type?: unknown; text?: unknown };
+  postback?: { data?: unknown };
 };
 
 type LineWebhookBody = { events?: unknown };
+type AcceptedLineEvent =
+  | { kind: "review"; event: { eventId: string; userId: string } }
+  | { kind: "text"; event: { eventId: string; userId: string; text: string } };
 
 function hybridAutoReplyEnabled(): boolean {
   return process.env.LINE_HYBRID_AUTO_REPLY_ENABLED?.toLowerCase() !== "false";
@@ -60,6 +65,66 @@ function getTextEvent(event: LineEvent): { eventId: string; userId: string; text
   };
 }
 
+function getReviewPostbackEvent(
+  event: LineEvent,
+): { eventId: string; userId: string } | null {
+  if (
+    event.type !== "postback" ||
+    typeof event.postback?.data !== "string" ||
+    !isTaxProfessionalReviewPostback(event.postback.data) ||
+    event.source?.type !== "user" ||
+    typeof event.source.userId !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    eventId:
+      typeof event.webhookEventId === "string"
+        ? event.webhookEventId
+        : `${event.source.userId}:${event.postback.data}`,
+    userId: event.source.userId,
+  };
+}
+
+async function notifyTaxProfessionalReview(
+  event: { eventId: string; userId: string },
+  conversationHistory: Awaited<ReturnType<typeof getConversationHistory>>,
+  customerText: string,
+): Promise<void> {
+  const id = createHash("sha256").update(event.eventId).digest("hex").slice(0, 32);
+  const now = new Date().toISOString();
+  const recentContext = conversationHistory
+    .slice(-6)
+    .map((message) => `${message.role === "customer" ? "顧客" : "AI"}: ${message.text}`)
+    .join("\n\n");
+
+  await sendStaffChannelMessage(
+    [
+      "【公式LINE・税理士個別相談】",
+      `受付ID: ${id}`,
+      `LINE利用者: ${createHash("sha256").update(event.userId).digest("hex").slice(0, 12)}`,
+      "",
+      redactSensitiveText(recentContext || customerText).slice(0, 3000),
+    ].join("\n"),
+  );
+
+  const receipt = buildReviewRequestReceipt();
+  await pushLineMessage(event.userId, receipt, randomUUID());
+  await Promise.all([
+    appendConversationMessage(event.userId, {
+      role: "customer",
+      text: customerText,
+      createdAt: now,
+    }),
+    appendConversationMessage(event.userId, {
+      role: "assistant",
+      text: receipt,
+      createdAt: now,
+    }),
+  ]);
+}
+
 async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise<void> {
   if (!event) return;
 
@@ -71,7 +136,9 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   const now = new Date().toISOString();
 
   if (isPricingInquiry(event.text)) {
-    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID());
+    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID(), {
+      includeTaxReviewButton: true,
+    });
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
@@ -88,33 +155,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   }
 
   if (isTaxProfessionalReviewRequest(event.text)) {
-    const recentContext = conversationHistory
-      .slice(-6)
-      .map((message) => `${message.role === "customer" ? "顧客" : "AI"}: ${message.text}`)
-      .join("\n\n");
-    await sendStaffChannelMessage(
-      [
-        "【公式LINE・税理士確認依頼】",
-        `受付ID: ${id}`,
-        `LINE利用者: ${createHash("sha256").update(event.userId).digest("hex").slice(0, 12)}`,
-        "",
-        redactSensitiveText(recentContext || event.text).slice(0, 3000),
-      ].join("\n"),
-    );
-    const receipt = buildReviewRequestReceipt();
-    await pushLineMessage(event.userId, receipt, randomUUID());
-    await Promise.all([
-      appendConversationMessage(event.userId, {
-        role: "customer",
-        text: event.text,
-        createdAt: now,
-      }),
-      appendConversationMessage(event.userId, {
-        role: "assistant",
-        text: receipt,
-        createdAt: now,
-      }),
-    ]);
+    await notifyTaxProfessionalReview(event, conversationHistory, event.text);
     return;
   }
 
@@ -183,7 +224,9 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     }
     if (autoReply) {
       try {
-        await pushLineMessage(record.lineUserId, record.draftReply, record.lineRetryKey);
+        await pushLineMessage(record.lineUserId, record.draftReply, record.lineRetryKey, {
+          includeTaxReviewButton: true,
+        });
         await transitionApproval(record.id, "sending", "sent", "hybrid-auto");
         await appendConversationMessage(record.lineUserId, {
           role: "assistant",
@@ -224,13 +267,31 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const events = Array.isArray(body.events) ? (body.events as LineEvent[]) : [];
-  const textEvents = events.map(getTextEvent).filter((event) => event !== null);
+  const acceptedEvents: AcceptedLineEvent[] = [];
+  for (const event of events) {
+    const reviewPostback = getReviewPostbackEvent(event);
+    if (reviewPostback) {
+      acceptedEvents.push({ kind: "review", event: reviewPostback });
+      continue;
+    }
+    const textEvent = getTextEvent(event);
+    if (textEvent) acceptedEvents.push({ kind: "text", event: textEvent });
+  }
 
   try {
-    for (const event of textEvents) {
-      await processTextEvent(event);
+    for (const accepted of acceptedEvents) {
+      if (accepted.kind === "review") {
+        const conversationHistory = await getConversationHistory(accepted.event.userId);
+        await notifyTaxProfessionalReview(
+          accepted.event,
+          conversationHistory,
+          "税理士へ個別相談（ボタン）",
+        );
+      } else {
+        await processTextEvent(accepted.event);
+      }
     }
-    return NextResponse.json({ ok: true, accepted: textEvents.length });
+    return NextResponse.json({ ok: true, accepted: acceptedEvents.length });
   } catch (error) {
     console.error("LINE webhook processing failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",

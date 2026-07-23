@@ -11,7 +11,7 @@ import {
   transitionApproval,
   type ApprovalRecord,
 } from "../lib/approvals/store.ts";
-import { splitLineMessages } from "../lib/line/client.ts";
+import { pushLineMessage, splitLineMessages } from "../lib/line/client.ts";
 import { verifyLineSignature } from "../lib/line/verifySignature.ts";
 import { verifyLineWorksSignature } from "../lib/lineworks/verifySignature.ts";
 
@@ -111,4 +111,39 @@ test("長文回答をLINE最大3通へ安全に分割する", () => {
   const messages = splitLineMessages(text);
   assert.ok(messages.length >= 2 && messages.length <= 3);
   assert.ok(messages.every((message) => message.length <= 4500));
+});
+
+test("AI回答の最後に税理士個別相談のpostbackボタンを付ける", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "回答本文", randomUUID(), {
+      includeTaxReviewButton: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  assert.ok(requestBody && typeof requestBody === "object");
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const lastMessage = messages.at(-1);
+  const quickReply = lastMessage?.quickReply as { items?: Array<Record<string, unknown>> };
+  const action = quickReply.items?.[0]?.action as Record<string, unknown>;
+  assert.equal(action.type, "postback");
+  assert.equal(action.label, "税理士へ個別相談");
+  assert.equal(action.data, "action=tax_professional_review");
 });

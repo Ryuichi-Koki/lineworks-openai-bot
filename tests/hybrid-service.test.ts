@@ -4,6 +4,7 @@ import type { ReplyDraft } from "../lib/openai/generateReplyDraft.ts";
 import {
   buildCustomerReply,
   isPricingInquiry,
+  isTaxProfessionalReviewPostback,
   isTaxProfessionalReviewRequest,
   shouldAutoReply,
   TAX_AI_PRICING_MESSAGE,
@@ -64,6 +65,11 @@ test("税理士確認の明示的な依頼だけを受付対象にする", () =>
   assert.equal(isTaxProfessionalReviewRequest("税理士確認を依頼"), true);
   assert.equal(isTaxProfessionalReviewRequest("税理士に相談をお願いします"), true);
   assert.equal(isTaxProfessionalReviewRequest("税理士確認は必要ですか？"), false);
+  assert.equal(
+    isTaxProfessionalReviewPostback("action=tax_professional_review"),
+    true,
+  );
+  assert.equal(isTaxProfessionalReviewPostback("action=other"), false);
 });
 
 test("検証済みの一般回答は自動回答可能と判定する", () => {
