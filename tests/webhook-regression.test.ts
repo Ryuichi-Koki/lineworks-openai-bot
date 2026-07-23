@@ -5,10 +5,17 @@ import {
   appendAuditRecord,
   appendConversationMessage,
   createApproval,
+  createConsultation,
+  createConsultationReplySession,
+  deleteConsultationReplySession,
   getApproval,
   getAuditRecords,
+  getConsultation,
+  getConsultationReplySession,
   getConversationHistory,
+  transitionConsultation,
   transitionApproval,
+  updateConsultationReplySession,
   type ApprovalRecord,
 } from "../lib/approvals/store.ts";
 import { pushLineMessage, splitLineMessages } from "../lib/line/client.ts";
@@ -97,6 +104,72 @@ test("会話履歴と監査履歴を保持する", async () => {
     promptVersion: "test",
   });
   assert.equal((await getAuditRecords(approvalId)).length, 1);
+});
+
+test("個別相談の回答作成・確認・送信状態を安全に遷移する", async () => {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  assert.equal(
+    await createConsultation({
+      id,
+      lineUserId: `line-${id}`,
+      staffContext: "直近の相談内容",
+      status: "waiting_reply",
+      lineRetryKey: randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    }),
+    true,
+  );
+  assert.equal(
+    (await transitionConsultation(id, "waiting_reply", "drafting", "reviewer"))
+      ?.status,
+    "drafting",
+  );
+  assert.equal(
+    await createConsultationReplySession({
+      consultationId: id,
+      reviewerUserId: "reviewer",
+      channelId: "channel",
+      stage: "drafting",
+      createdAt: now,
+    }),
+    true,
+  );
+  const session = await getConsultationReplySession("channel", "reviewer");
+  assert.equal(session?.consultationId, id);
+  if (!session) assert.fail("consultation session was not created");
+  await updateConsultationReplySession({ ...session, stage: "confirming" });
+  assert.equal(
+    (await getConsultationReplySession("channel", "reviewer"))?.stage,
+    "confirming",
+  );
+  assert.equal(
+    (
+      await transitionConsultation(
+        id,
+        "drafting",
+        "awaiting_send",
+        "reviewer",
+        "税理士からの回答",
+      )
+    )?.replyText,
+    "税理士からの回答",
+  );
+  assert.equal(
+    (await transitionConsultation(id, "awaiting_send", "sending", "reviewer"))
+      ?.status,
+    "sending",
+  );
+  assert.equal(
+    (await transitionConsultation(id, "sending", "sent", "reviewer"))?.status,
+    "sent",
+  );
+  assert.equal((await getConsultation(id))?.status, "sent");
+  assert.equal(
+    await deleteConsultationReplySession("channel", "reviewer", id),
+    true,
+  );
 });
 
 test("長文回答をLINE最大3通へ安全に分割する", () => {

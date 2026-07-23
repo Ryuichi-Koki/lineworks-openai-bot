@@ -4,6 +4,8 @@ import {
   appendAuditRecord,
   appendConversationMessage,
   createApproval,
+  createConsultation,
+  deleteConsultation,
   getClientProfile,
   getConversationHistory,
   transitionApproval,
@@ -13,7 +15,7 @@ import { pushLineMessage } from "@/lib/line/client";
 import { verifyLineSignature } from "@/lib/line/verifySignature";
 import {
   sendStaffApprovalMessage,
-  sendStaffChannelMessage,
+  sendStaffConsultationMessage,
 } from "@/lib/lineworks/client";
 import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
 import { redactSensitiveText } from "@/lib/security/redaction";
@@ -99,30 +101,41 @@ async function notifyTaxProfessionalReview(
     .map((message) => `${message.role === "customer" ? "顧客" : "AI"}: ${message.text}`)
     .join("\n\n");
 
-  await sendStaffChannelMessage(
-    [
-      "【公式LINE・税理士個別相談】",
-      `受付ID: ${id}`,
+  const consultation = {
+    id,
+    lineUserId: event.userId,
+    staffContext: [
       `LINE利用者: ${createHash("sha256").update(event.userId).digest("hex").slice(0, 12)}`,
       "",
-      redactSensitiveText(recentContext || customerText).slice(0, 3000),
+      redactSensitiveText(recentContext || customerText).slice(0, 1600),
     ].join("\n"),
-  );
+    status: "waiting_reply" as const,
+    lineRetryKey: randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (!(await createConsultation(consultation))) return;
 
-  const receipt = buildReviewRequestReceipt();
-  await pushLineMessage(event.userId, receipt, randomUUID());
-  await Promise.all([
-    appendConversationMessage(event.userId, {
-      role: "customer",
-      text: customerText,
-      createdAt: now,
-    }),
-    appendConversationMessage(event.userId, {
-      role: "assistant",
-      text: receipt,
-      createdAt: now,
-    }),
-  ]);
+  try {
+    await sendStaffConsultationMessage(consultation);
+    const receipt = buildReviewRequestReceipt();
+    await pushLineMessage(event.userId, receipt, randomUUID());
+    await Promise.all([
+      appendConversationMessage(event.userId, {
+        role: "customer",
+        text: customerText,
+        createdAt: now,
+      }),
+      appendConversationMessage(event.userId, {
+        role: "assistant",
+        text: receipt,
+        createdAt: now,
+      }),
+    ]);
+  } catch (error) {
+    await deleteConsultation(id);
+    throw error;
+  }
 }
 
 async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise<void> {

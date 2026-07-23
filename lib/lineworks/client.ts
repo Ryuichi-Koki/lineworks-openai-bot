@@ -1,4 +1,7 @@
-import type { ApprovalRecord } from "@/lib/approvals/store";
+import type {
+  ApprovalRecord,
+  ConsultationRecord,
+} from "@/lib/approvals/store";
 import { getLineWorksAccessToken } from "./auth.ts";
 
 const LINEWORKS_API_BASE_URL = "https://www.worksapis.com/v1.0";
@@ -99,6 +102,64 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
         type: "message",
         label: "却下",
         postback: `approvalId=${encodeURIComponent(record.id)}&action=reject&revision=${revision}`,
+      },
+    ],
+  });
+}
+
+export async function sendStaffConsultationMessage(
+  record: ConsultationRecord,
+): Promise<void> {
+  await sendStaffContent({
+    type: "button_template",
+    contentText: truncate(
+      [
+        "【公式LINE・税理士個別相談】",
+        `受付ID: ${record.id}`,
+        "",
+        record.staffContext,
+      ].join("\n"),
+      1000,
+    ),
+    actions: [
+      {
+        type: "message",
+        label: "この相談に回答",
+        postback: `consultationId=${encodeURIComponent(record.id)}&action=reply`,
+      },
+    ],
+  });
+}
+
+export async function sendStaffConsultationConfirmation(
+  record: ConsultationRecord,
+): Promise<void> {
+  await sendStaffContent({
+    type: "button_template",
+    contentText: truncate(
+      [
+        "【公式LINEへ送信する回答】",
+        record.replyText ?? "",
+        "",
+        "内容を確認して操作してください。",
+      ].join("\n"),
+      1000,
+    ),
+    actions: [
+      {
+        type: "message",
+        label: "公式LINEへ送信",
+        postback: `consultationId=${encodeURIComponent(record.id)}&action=send`,
+      },
+      {
+        type: "message",
+        label: "書き直す",
+        postback: `consultationId=${encodeURIComponent(record.id)}&action=edit`,
+      },
+      {
+        type: "message",
+        label: "中止",
+        postback: `consultationId=${encodeURIComponent(record.id)}&action=cancel`,
       },
     ],
   });

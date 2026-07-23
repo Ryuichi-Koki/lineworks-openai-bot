@@ -29,6 +29,33 @@ export type RevisionSession = {
   createdAt: string;
 };
 
+export type ConsultationStatus =
+  | "waiting_reply"
+  | "drafting"
+  | "awaiting_send"
+  | "sending"
+  | "sent";
+
+export type ConsultationRecord = {
+  id: string;
+  lineUserId: string;
+  staffContext: string;
+  status: ConsultationStatus;
+  lineRetryKey: string;
+  replyText?: string;
+  reviewerUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConsultationReplySession = {
+  consultationId: string;
+  reviewerUserId: string;
+  channelId: string;
+  stage: "drafting" | "confirming";
+  createdAt: string;
+};
+
 export type ConversationMessage = {
   role: "customer" | "assistant";
   text: string;
@@ -92,11 +119,14 @@ const REVISION_SESSION_KEY_PREFIX = "apexbrain:revision-session:";
 const CONVERSATION_KEY_PREFIX = "apexbrain:line-conversation:";
 const CLIENT_KEY_PREFIX = "apexbrain:line-client:";
 const AUDIT_KEY_PREFIX = "apexbrain:audit:";
+const CONSULTATION_KEY_PREFIX = "apexbrain:consultation:";
+const CONSULTATION_SESSION_KEY_PREFIX = "apexbrain:consultation-session:";
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 14;
 const REVISION_SESSION_TTL_SECONDS = 60 * 30;
 const DEFAULT_CONVERSATION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const DEFAULT_CONVERSATION_MAX_MESSAGES = 20;
 const AUDIT_TTL_SECONDS = 60 * 60 * 24 * 365 * 7;
+const CONSULTATION_SESSION_TTL_SECONDS = 60 * 60;
 
 declare global {
   var __lineApprovalMemoryStore: Map<string, ApprovalRecord> | undefined;
@@ -104,6 +134,10 @@ declare global {
   var __lineConversationMemoryStore: Map<string, ConversationMessage[]> | undefined;
   var __lineClientMemoryStore: Map<string, ClientProfile> | undefined;
   var __lineAuditMemoryStore: Map<string, AuditRecord[]> | undefined;
+  var __lineConsultationMemoryStore: Map<string, ConsultationRecord> | undefined;
+  var __lineConsultationSessionMemoryStore:
+    | Map<string, ConsultationReplySession>
+    | undefined;
 }
 
 const memoryStore = globalThis.__lineApprovalMemoryStore ?? new Map<string, ApprovalRecord>();
@@ -120,6 +154,13 @@ globalThis.__lineClientMemoryStore = clientMemoryStore;
 const auditMemoryStore =
   globalThis.__lineAuditMemoryStore ?? new Map<string, AuditRecord[]>();
 globalThis.__lineAuditMemoryStore = auditMemoryStore;
+const consultationMemoryStore =
+  globalThis.__lineConsultationMemoryStore ?? new Map<string, ConsultationRecord>();
+globalThis.__lineConsultationMemoryStore = consultationMemoryStore;
+const consultationSessionMemoryStore =
+  globalThis.__lineConsultationSessionMemoryStore ??
+  new Map<string, ConsultationReplySession>();
+globalThis.__lineConsultationSessionMemoryStore = consultationSessionMemoryStore;
 
 function conversationKey(lineUserId: string): string {
   const userHash = createHash("sha256").update(lineUserId).digest("hex").slice(0, 32);
@@ -160,6 +201,10 @@ function conversationTtlSeconds(): number {
 
 function revisionSessionKey(channelId: string, reviewerUserId: string): string {
   return `${REVISION_SESSION_KEY_PREFIX}${channelId}:${reviewerUserId}`;
+}
+
+function consultationSessionKey(channelId: string, reviewerUserId: string): string {
+  return `${CONSULTATION_SESSION_KEY_PREFIX}${channelId}:${reviewerUserId}`;
 }
 
 function getRedisConfig(): { url: string; token: string } | null {
@@ -489,4 +534,161 @@ export async function deleteRevisionSession(
     "return redis.call('DEL', KEYS[1])",
   ].join("\n");
   return (await redisCommand<number>(["EVAL", script, "1", key, approvalId])) === 1;
+}
+
+export async function createConsultation(record: ConsultationRecord): Promise<boolean> {
+  if (!getRedisConfig()) {
+    if (consultationMemoryStore.has(record.id)) return false;
+    consultationMemoryStore.set(record.id, record);
+    return true;
+  }
+  const result = await redisCommand<string | null>([
+    "SET",
+    `${CONSULTATION_KEY_PREFIX}${record.id}`,
+    JSON.stringify(record),
+    "EX",
+    String(Number(process.env.APPROVAL_TTL_SECONDS) || DEFAULT_TTL_SECONDS),
+    "NX",
+  ]);
+  return result === "OK";
+}
+
+export async function getConsultation(id: string): Promise<ConsultationRecord | null> {
+  if (!getRedisConfig()) return consultationMemoryStore.get(id) ?? null;
+  const value = await redisCommand<string | null>([
+    "GET",
+    `${CONSULTATION_KEY_PREFIX}${id}`,
+  ]);
+  return value ? (JSON.parse(value) as ConsultationRecord) : null;
+}
+
+export async function deleteConsultation(id: string): Promise<boolean> {
+  if (!getRedisConfig()) return consultationMemoryStore.delete(id);
+  return (
+    (await redisCommand<number>(["DEL", `${CONSULTATION_KEY_PREFIX}${id}`])) === 1
+  );
+}
+
+export async function transitionConsultation(
+  id: string,
+  expectedStatus: ConsultationStatus,
+  nextStatus: ConsultationStatus,
+  reviewerUserId: string,
+  replyText?: string,
+): Promise<ConsultationRecord | null> {
+  const updatedAt = new Date().toISOString();
+  if (!getRedisConfig()) {
+    const current = consultationMemoryStore.get(id);
+    if (!current || current.status !== expectedStatus) return null;
+    const updated: ConsultationRecord = {
+      ...current,
+      status: nextStatus,
+      reviewerUserId,
+      updatedAt,
+      ...(replyText === undefined ? {} : { replyText }),
+    };
+    consultationMemoryStore.set(id, updated);
+    return updated;
+  }
+  const script = [
+    "local raw = redis.call('GET', KEYS[1])",
+    "if not raw then return nil end",
+    "local item = cjson.decode(raw)",
+    "if item.status ~= ARGV[1] then return nil end",
+    "item.status = ARGV[2]",
+    "item.reviewerUserId = ARGV[3]",
+    "item.updatedAt = ARGV[4]",
+    "if ARGV[5] ~= '' then item.replyText = ARGV[5] end",
+    "local encoded = cjson.encode(item)",
+    "redis.call('SET', KEYS[1], encoded, 'KEEPTTL')",
+    "return encoded",
+  ].join("\n");
+  const value = await redisCommand<string | null>([
+    "EVAL",
+    script,
+    "1",
+    `${CONSULTATION_KEY_PREFIX}${id}`,
+    expectedStatus,
+    nextStatus,
+    reviewerUserId,
+    updatedAt,
+    replyText ?? "",
+  ]);
+  return value ? (JSON.parse(value) as ConsultationRecord) : null;
+}
+
+export async function createConsultationReplySession(
+  session: ConsultationReplySession,
+): Promise<boolean> {
+  const key = consultationSessionKey(session.channelId, session.reviewerUserId);
+  if (!getRedisConfig()) {
+    if (consultationSessionMemoryStore.has(key)) return false;
+    consultationSessionMemoryStore.set(key, session);
+    return true;
+  }
+  const result = await redisCommand<string | null>([
+    "SET",
+    key,
+    JSON.stringify(session),
+    "EX",
+    String(CONSULTATION_SESSION_TTL_SECONDS),
+    "NX",
+  ]);
+  return result === "OK";
+}
+
+export async function getConsultationReplySession(
+  channelId: string,
+  reviewerUserId: string,
+): Promise<ConsultationReplySession | null> {
+  const key = consultationSessionKey(channelId, reviewerUserId);
+  if (!getRedisConfig()) return consultationSessionMemoryStore.get(key) ?? null;
+  const value = await redisCommand<string | null>(["GET", key]);
+  return value ? (JSON.parse(value) as ConsultationReplySession) : null;
+}
+
+export async function updateConsultationReplySession(
+  session: ConsultationReplySession,
+): Promise<void> {
+  const key = consultationSessionKey(session.channelId, session.reviewerUserId);
+  if (!getRedisConfig()) {
+    consultationSessionMemoryStore.set(key, session);
+    return;
+  }
+  await redisCommand<string>([
+    "SET",
+    key,
+    JSON.stringify(session),
+    "EX",
+    String(CONSULTATION_SESSION_TTL_SECONDS),
+  ]);
+}
+
+export async function deleteConsultationReplySession(
+  channelId: string,
+  reviewerUserId: string,
+  consultationId: string,
+): Promise<boolean> {
+  const key = consultationSessionKey(channelId, reviewerUserId);
+  if (!getRedisConfig()) {
+    const current = consultationSessionMemoryStore.get(key);
+    if (!current || current.consultationId !== consultationId) return false;
+    return consultationSessionMemoryStore.delete(key);
+  }
+  const script = [
+    "local raw = redis.call('GET', KEYS[1])",
+    "if not raw then return 0 end",
+    "local item = cjson.decode(raw)",
+    "if item.consultationId ~= ARGV[1] then return 0 end",
+    "return redis.call('DEL', KEYS[1])",
+  ].join("\n");
+  return (
+    (await redisCommand<number>([
+      "EVAL",
+      script,
+      "1",
+      key,
+      consultationId,
+    ])) === 1
+  );
 }

@@ -2,15 +2,25 @@ import { NextResponse } from "next/server";
 import {
   appendAuditRecord,
   appendConversationMessage,
+  createConsultationReplySession,
   createRevisionSession,
+  deleteConsultationReplySession,
   deleteRevisionSession,
   getApproval,
+  getConsultation,
+  getConsultationReplySession,
   getRevisionSession,
+  transitionConsultation,
   transitionApproval,
+  updateConsultationReplySession,
   updateApprovalDraft,
 } from "@/lib/approvals/store";
 import { pushLineMessage } from "@/lib/line/client";
-import { sendStaffApprovalMessage, sendStaffChannelMessage } from "@/lib/lineworks/client";
+import {
+  sendStaffApprovalMessage,
+  sendStaffChannelMessage,
+  sendStaffConsultationConfirmation,
+} from "@/lib/lineworks/client";
 import { verifyLineWorksSignature } from "@/lib/lineworks/verifySignature";
 import { reviseReplyDraft } from "@/lib/openai/generateReplyDraft";
 
@@ -31,6 +41,15 @@ type ApprovalActionEvent = {
   reviewerUserId: string;
   channelId: string;
   revision: number | null;
+};
+
+type ConsultationAction = "reply" | "send" | "edit" | "cancel";
+
+type ConsultationActionEvent = {
+  consultationId: string;
+  action: ConsultationAction;
+  reviewerUserId: string;
+  channelId: string;
 };
 
 function getConversationId(event: LineWorksCallbackEvent, reviewerUserId: string): string {
@@ -56,6 +75,34 @@ function getApprovalAction(event: LineWorksCallbackEvent): ApprovalActionEvent |
     return null;
   }
   return { approvalId, action, reviewerUserId, channelId, revision };
+}
+
+function getConsultationAction(
+  event: LineWorksCallbackEvent,
+): ConsultationActionEvent | null {
+  const postback = event.type === "postback" ? event.data : event.content?.postback;
+  const reviewerUserId = event.source?.userId;
+  if (typeof postback !== "string" || typeof reviewerUserId !== "string") {
+    return null;
+  }
+  const values = new URLSearchParams(postback);
+  const consultationId = values.get("consultationId");
+  const action = values.get("action");
+  if (
+    !consultationId ||
+    (action !== "reply" &&
+      action !== "send" &&
+      action !== "edit" &&
+      action !== "cancel")
+  ) {
+    return null;
+  }
+  return {
+    consultationId,
+    action,
+    reviewerUserId,
+    channelId: getConversationId(event, reviewerUserId),
+  };
 }
 
 function getRevisionInstruction(
@@ -182,6 +229,14 @@ async function handleRejection(
 }
 
 async function handleRevisionRequest(event: ApprovalActionEvent): Promise<{ status: string }> {
+  if (
+    await getConsultationReplySession(event.channelId, event.reviewerUserId)
+  ) {
+    await sendStaffChannelMessage(
+      "個別相談への回答を完了または中止してから、返信案の修正を開始してください。",
+    );
+    return { status: "consultation_session_exists" };
+  }
   const record = await getApproval(event.approvalId);
   if (!record) return { status: "not_found" };
   if (!isCurrentRevision(record.revision, event.revision)) return { status: "stale_revision" };
@@ -317,6 +372,242 @@ async function handleRevisionInstruction(
   }
 }
 
+async function handleConsultationReplyStart(
+  event: ConsultationActionEvent,
+): Promise<{ status: string }> {
+  if (await getRevisionSession(event.channelId, event.reviewerUserId)) {
+    await sendStaffChannelMessage(
+      "返信案の修正を完了してから、個別相談への回答を開始してください。",
+    );
+    return { status: "revision_session_exists" };
+  }
+  const existingSession = await getConsultationReplySession(
+    event.channelId,
+    event.reviewerUserId,
+  );
+  if (existingSession) {
+    await sendStaffChannelMessage(
+      "先に開始した個別相談の回答を完了または中止してから、別の相談を選択してください。",
+    );
+    return { status: "consultation_session_exists" };
+  }
+
+  const claimed = await transitionConsultation(
+    event.consultationId,
+    "waiting_reply",
+    "drafting",
+    event.reviewerUserId,
+  );
+  if (!claimed) {
+    const current = await getConsultation(event.consultationId);
+    return { status: current?.status ?? "not_found" };
+  }
+
+  const created = await createConsultationReplySession({
+    consultationId: event.consultationId,
+    reviewerUserId: event.reviewerUserId,
+    channelId: event.channelId,
+    stage: "drafting",
+    createdAt: new Date().toISOString(),
+  });
+  if (!created) {
+    await transitionConsultation(
+      event.consultationId,
+      "drafting",
+      "waiting_reply",
+      event.reviewerUserId,
+    );
+    return { status: "consultation_session_exists" };
+  }
+
+  try {
+    await sendStaffChannelMessage(
+      [
+        "この相談への回答文をテキストで入力してください。",
+        "入力した時点では公式LINEへ送信されません。",
+        "入力後に表示される「公式LINEへ送信」ボタンで確定します。",
+        `受付ID: ${event.consultationId}`,
+      ].join("\n"),
+    );
+    return { status: "consultation_drafting" };
+  } catch (error) {
+    await deleteConsultationReplySession(
+      event.channelId,
+      event.reviewerUserId,
+      event.consultationId,
+    );
+    await transitionConsultation(
+      event.consultationId,
+      "drafting",
+      "waiting_reply",
+      event.reviewerUserId,
+    );
+    throw error;
+  }
+}
+
+async function handleConsultationReplyText(
+  reviewerUserId: string,
+  channelId: string,
+  replyText: string,
+): Promise<{ status: string }> {
+  const session = await getConsultationReplySession(channelId, reviewerUserId);
+  if (!session) return { status: "ignored" };
+  if (session.stage !== "drafting") {
+    await sendStaffChannelMessage(
+      "現在は送信確認中です。「公式LINEへ送信」「書き直す」「中止」のいずれかを選択してください。",
+    );
+    return { status: "consultation_confirming" };
+  }
+  if (replyText.length > 10000) {
+    await sendStaffChannelMessage("回答文は10,000文字以内で入力してください。");
+    return { status: "reply_too_long" };
+  }
+
+  const updated = await transitionConsultation(
+    session.consultationId,
+    "drafting",
+    "awaiting_send",
+    reviewerUserId,
+    replyText,
+  );
+  if (!updated) return { status: "already_processed" };
+
+  await updateConsultationReplySession({ ...session, stage: "confirming" });
+  try {
+    await sendStaffConsultationConfirmation(updated);
+    return { status: "consultation_confirming" };
+  } catch (error) {
+    await transitionConsultation(
+      session.consultationId,
+      "awaiting_send",
+      "drafting",
+      reviewerUserId,
+    );
+    await updateConsultationReplySession({ ...session, stage: "drafting" });
+    throw error;
+  }
+}
+
+async function handleConsultationSend(
+  event: ConsultationActionEvent,
+): Promise<{ status: string }> {
+  const session = await getConsultationReplySession(
+    event.channelId,
+    event.reviewerUserId,
+  );
+  if (
+    !session ||
+    session.consultationId !== event.consultationId ||
+    session.stage !== "confirming"
+  ) {
+    return { status: "consultation_session_not_found" };
+  }
+
+  const claimed = await transitionConsultation(
+    event.consultationId,
+    "awaiting_send",
+    "sending",
+    event.reviewerUserId,
+  );
+  if (!claimed?.replyText) return { status: "already_processed" };
+
+  try {
+    await pushLineMessage(
+      claimed.lineUserId,
+      claimed.replyText,
+      claimed.lineRetryKey,
+    );
+    await transitionConsultation(
+      event.consultationId,
+      "sending",
+      "sent",
+      event.reviewerUserId,
+    );
+    await appendConversationMessage(claimed.lineUserId, {
+      role: "assistant",
+      text: claimed.replyText,
+      createdAt: new Date().toISOString(),
+    });
+    await appendAuditRecord({
+      approvalId: claimed.id,
+      eventType: "reply_sent",
+      recordedAt: new Date().toISOString(),
+      answer: claimed.replyText,
+      reviewerUserId: event.reviewerUserId,
+    });
+    await deleteConsultationReplySession(
+      event.channelId,
+      event.reviewerUserId,
+      event.consultationId,
+    );
+    await sendStaffChannelMessage(
+      `公式LINEへ回答を送信しました。\n受付ID: ${event.consultationId}`,
+    );
+    return { status: "consultation_sent" };
+  } catch (error) {
+    await transitionConsultation(
+      event.consultationId,
+      "sending",
+      "awaiting_send",
+      event.reviewerUserId,
+    );
+    throw error;
+  }
+}
+
+async function handleConsultationEdit(
+  event: ConsultationActionEvent,
+): Promise<{ status: string }> {
+  const session = await getConsultationReplySession(
+    event.channelId,
+    event.reviewerUserId,
+  );
+  if (!session || session.consultationId !== event.consultationId) {
+    return { status: "consultation_session_not_found" };
+  }
+  const updated = await transitionConsultation(
+    event.consultationId,
+    "awaiting_send",
+    "drafting",
+    event.reviewerUserId,
+  );
+  if (!updated) return { status: "already_processed" };
+  await updateConsultationReplySession({ ...session, stage: "drafting" });
+  await sendStaffChannelMessage("回答文を書き直して送信してください。");
+  return { status: "consultation_drafting" };
+}
+
+async function handleConsultationCancel(
+  event: ConsultationActionEvent,
+): Promise<{ status: string }> {
+  const session = await getConsultationReplySession(
+    event.channelId,
+    event.reviewerUserId,
+  );
+  if (!session || session.consultationId !== event.consultationId) {
+    return { status: "consultation_session_not_found" };
+  }
+  const record = await getConsultation(event.consultationId);
+  if (record?.status === "drafting" || record?.status === "awaiting_send") {
+    await transitionConsultation(
+      event.consultationId,
+      record.status,
+      "waiting_reply",
+      event.reviewerUserId,
+    );
+  }
+  await deleteConsultationReplySession(
+    event.channelId,
+    event.reviewerUserId,
+    event.consultationId,
+  );
+  await sendStaffChannelMessage(
+    `回答作成を中止しました。相談は未回答へ戻りました。\n受付ID: ${event.consultationId}`,
+  );
+  return { status: "consultation_cancelled" };
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const rawBody = await request.text();
   if (!verifyLineWorksSignature(rawBody, request.headers.get("x-works-signature"))) {
@@ -331,8 +622,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const approval = getApprovalAction(event);
-  const revisionInstruction = approval ? null : getRevisionInstruction(event);
-  const reviewerUserId = approval?.reviewerUserId ?? revisionInstruction?.reviewerUserId;
+  const consultation = approval ? null : getConsultationAction(event);
+  const revisionInstruction =
+    approval || consultation ? null : getRevisionInstruction(event);
+  const reviewerUserId =
+    approval?.reviewerUserId ??
+    consultation?.reviewerUserId ??
+    revisionInstruction?.reviewerUserId;
   if (!reviewerUserId) return NextResponse.json({ ok: true, ignored: true });
   if (!isAuthorizedApprover(reviewerUserId)) {
     return NextResponse.json({ error: "Approver not allowed" }, { status: 403 });
@@ -346,12 +642,27 @@ export async function POST(request: Request): Promise<NextResponse> {
       result = await handleRejection(approval.approvalId, approval.reviewerUserId, approval.revision);
     } else if (approval?.action === "revise") {
       result = await handleRevisionRequest(approval);
+    } else if (consultation?.action === "reply") {
+      result = await handleConsultationReplyStart(consultation);
+    } else if (consultation?.action === "send") {
+      result = await handleConsultationSend(consultation);
+    } else if (consultation?.action === "edit") {
+      result = await handleConsultationEdit(consultation);
+    } else if (consultation?.action === "cancel") {
+      result = await handleConsultationCancel(consultation);
     } else if (revisionInstruction) {
-      result = await handleRevisionInstruction(
+      result = await handleConsultationReplyText(
         revisionInstruction.reviewerUserId,
         revisionInstruction.channelId,
         revisionInstruction.instruction,
       );
+      if (result.status === "ignored") {
+        result = await handleRevisionInstruction(
+          revisionInstruction.reviewerUserId,
+          revisionInstruction.channelId,
+          revisionInstruction.instruction,
+        );
+      }
     } else {
       result = { status: "ignored" };
     }
