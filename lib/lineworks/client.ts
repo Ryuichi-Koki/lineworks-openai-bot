@@ -63,6 +63,7 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
   const contentText = truncate(
     [
       `【${record.category}／${record.urgency}】顧問先からの質問`,
+      `内部判定: レベル${record.answerLevel}／信頼度${record.confidence}／根拠${record.sourceVerification}`,
       ...(revision > 0 ? [`（修正版 ${revision}）`] : []),
       record.customerMessage,
       "",
@@ -71,6 +72,9 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
       "",
       "【送信前の確認事項】",
       checks,
+      ...(record.requiresTaxProfessionalReview
+        ? ["", "⚠️ 税理士確認・引継ぎ対象です。"]
+        : []),
       "",
       "内容を確認して操作してください。",
     ].join("\n"),

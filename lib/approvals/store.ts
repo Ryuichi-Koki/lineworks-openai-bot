@@ -35,23 +35,75 @@ export type ConversationMessage = {
   createdAt: string;
 };
 
+export type ClientProfile = {
+  clientName?: string;
+  entityType?: "法人" | "個人";
+  fiscalYearEndMonth?: number;
+  consumptionTaxStatus?: "課税" | "免税" | "不明";
+  consumptionTaxMethod?: "本則" | "簡易" | "不明";
+  invoiceRegistrationStatus?: "登録" | "未登録" | "不明";
+  blueReturnStatus?: "青色" | "白色" | "不明";
+  capitalYen?: number;
+  industry?: string;
+  officerInformation?: string;
+  payrollOfficeStatus?: string;
+  withholdingSpecialDueDateStatus?: string;
+  filedNotifications?: string[];
+  pastConsultationSummary?: string;
+  assignedTaxProfessional?: string;
+  assignedStaff?: string;
+  updatedAt?: string;
+};
+
+export type AuditEventType =
+  | "draft_generated"
+  | "draft_revised"
+  | "reply_sent"
+  | "reply_rejected"
+  | "processing_failed";
+
+export type AuditRecord = {
+  approvalId: string;
+  eventType: AuditEventType;
+  recordedAt: string;
+  redactedQuestion?: string;
+  answer?: string;
+  answerLevel?: string;
+  confidence?: string;
+  model?: string;
+  promptVersion?: string;
+  sources?: Array<{
+    title: string;
+    url: string;
+    legalReference: string | null;
+    retrievedAt: string | null;
+    quote: string;
+  }>;
+  assumptions?: string[];
+  referencedClientFields?: string[];
+  reviewerUserIdHash?: string;
+  errorName?: string;
+};
+
 type RedisResponse<T> = { result?: T; error?: string };
 
 const KEY_PREFIX = "apexbrain:line-approval:";
 const REVISION_SESSION_KEY_PREFIX = "apexbrain:revision-session:";
 const CONVERSATION_KEY_PREFIX = "apexbrain:line-conversation:";
+const CLIENT_KEY_PREFIX = "apexbrain:line-client:";
+const AUDIT_KEY_PREFIX = "apexbrain:audit:";
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 14;
 const REVISION_SESSION_TTL_SECONDS = 60 * 30;
 const DEFAULT_CONVERSATION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const DEFAULT_CONVERSATION_MAX_MESSAGES = 20;
+const AUDIT_TTL_SECONDS = 60 * 60 * 24 * 365 * 7;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __lineApprovalMemoryStore: Map<string, ApprovalRecord> | undefined;
-  // eslint-disable-next-line no-var
   var __lineRevisionSessionMemoryStore: Map<string, RevisionSession> | undefined;
-  // eslint-disable-next-line no-var
   var __lineConversationMemoryStore: Map<string, ConversationMessage[]> | undefined;
+  var __lineClientMemoryStore: Map<string, ClientProfile> | undefined;
+  var __lineAuditMemoryStore: Map<string, AuditRecord[]> | undefined;
 }
 
 const memoryStore = globalThis.__lineApprovalMemoryStore ?? new Map<string, ApprovalRecord>();
@@ -62,10 +114,27 @@ globalThis.__lineRevisionSessionMemoryStore = revisionSessionMemoryStore;
 const conversationMemoryStore =
   globalThis.__lineConversationMemoryStore ?? new Map<string, ConversationMessage[]>();
 globalThis.__lineConversationMemoryStore = conversationMemoryStore;
+const clientMemoryStore =
+  globalThis.__lineClientMemoryStore ?? new Map<string, ClientProfile>();
+globalThis.__lineClientMemoryStore = clientMemoryStore;
+const auditMemoryStore =
+  globalThis.__lineAuditMemoryStore ?? new Map<string, AuditRecord[]>();
+globalThis.__lineAuditMemoryStore = auditMemoryStore;
 
 function conversationKey(lineUserId: string): string {
   const userHash = createHash("sha256").update(lineUserId).digest("hex").slice(0, 32);
   return `${CONVERSATION_KEY_PREFIX}${userHash}`;
+}
+
+function clientKey(lineUserId: string): string {
+  const userHash = createHash("sha256").update(lineUserId).digest("hex").slice(0, 32);
+  return `${CLIENT_KEY_PREFIX}${userHash}`;
+}
+
+function reviewerHash(reviewerUserId: string | undefined): string | undefined {
+  return reviewerUserId
+    ? createHash("sha256").update(reviewerUserId).digest("hex").slice(0, 16)
+    : undefined;
 }
 
 function positiveInteger(value: string | undefined, fallback: number, maximum: number): number {
@@ -208,6 +277,62 @@ export async function appendConversationMessage(
   ]);
 }
 
+export async function getClientProfile(lineUserId: string): Promise<ClientProfile | null> {
+  const key = clientKey(lineUserId);
+  if (!getRedisConfig()) return clientMemoryStore.get(key) ?? null;
+  const value = await redisCommand<string | null>(["GET", key]);
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as ClientProfile;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function appendAuditRecord(
+  record: AuditRecord & { reviewerUserId?: string },
+): Promise<void> {
+  const key = `${AUDIT_KEY_PREFIX}${record.approvalId}`;
+  const { reviewerUserId, ...safeRecord } = record;
+  const stored: AuditRecord = {
+    ...safeRecord,
+    reviewerUserIdHash: reviewerHash(reviewerUserId),
+  };
+  if (!getRedisConfig()) {
+    const records = [...(auditMemoryStore.get(key) ?? []), stored].slice(-100);
+    auditMemoryStore.set(key, records);
+    return;
+  }
+  const script = [
+    "redis.call('RPUSH', KEYS[1], ARGV[1])",
+    "redis.call('LTRIM', KEYS[1], -100, -1)",
+    "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))",
+    "return 1",
+  ].join("\n");
+  await redisCommand<number>([
+    "EVAL",
+    script,
+    "1",
+    key,
+    JSON.stringify(stored),
+    String(AUDIT_TTL_SECONDS),
+  ]);
+}
+
+export async function getAuditRecords(approvalId: string): Promise<AuditRecord[]> {
+  const key = `${AUDIT_KEY_PREFIX}${approvalId}`;
+  if (!getRedisConfig()) return auditMemoryStore.get(key) ?? [];
+  const values = await redisCommand<string[]>(["LRANGE", key, "0", "-1"]);
+  return values.flatMap((value) => {
+    try {
+      return [JSON.parse(value) as AuditRecord];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export async function transitionApproval(
   id: string,
   expectedStatus: ApprovalStatus,
@@ -254,7 +379,7 @@ export async function transitionApproval(
 export async function updateApprovalDraft(
   id: string,
   expectedStatus: ApprovalStatus,
-  draft: Pick<ApprovalRecord, "category" | "urgency" | "draftReply" | "checkItems">,
+  draft: ReplyDraft,
   reviewerUserId: string,
 ): Promise<ApprovalRecord | null> {
   const updatedAt = new Date().toISOString();
@@ -282,8 +407,20 @@ export async function updateApprovalDraft(
     "local draft = cjson.decode(ARGV[2])",
     "item.category = draft.category",
     "item.urgency = draft.urgency",
+    "item.answerLevel = draft.answerLevel",
+    "item.confidence = draft.confidence",
+    "item.inferredIntent = draft.inferredIntent",
+    "item.assumptions = draft.assumptions",
     "item.draftReply = draft.draftReply",
     "item.checkItems = draft.checkItems",
+    "item.sources = draft.sources",
+    "item.sourceVerification = draft.sourceVerification",
+    "item.requiresTaxProfessionalReview = draft.requiresTaxProfessionalReview",
+    "item.handoffSummary = draft.handoffSummary",
+    "item.clientContextFieldsUsed = draft.clientContextFieldsUsed",
+    "item.model = draft.model",
+    "item.promptVersion = draft.promptVersion",
+    "item.generatedAt = draft.generatedAt",
     "item.revision = (item.revision or 0) + 1",
     "item.status = 'pending'",
     "item.reviewerUserId = ARGV[3]",

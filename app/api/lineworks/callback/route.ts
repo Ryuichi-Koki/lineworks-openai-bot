@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  appendAuditRecord,
   appendConversationMessage,
   createRevisionSession,
   deleteRevisionSession,
@@ -108,6 +109,24 @@ async function handleApproval(
     await pushLineMessage(claimed.lineUserId, claimed.draftReply, claimed.lineRetryKey);
     await transitionApproval(approvalId, "sending", "sent", reviewerUserId);
     try {
+      await appendAuditRecord({
+        approvalId,
+        eventType: "reply_sent",
+        recordedAt: new Date().toISOString(),
+        answer: claimed.draftReply,
+        answerLevel: claimed.answerLevel,
+        confidence: claimed.confidence,
+        model: claimed.model,
+        promptVersion: claimed.promptVersion,
+        reviewerUserId,
+      });
+    } catch (auditError) {
+      console.error("Failed to save sent audit record", {
+        errorName: auditError instanceof Error ? auditError.name : "UnknownError",
+        approvalId,
+      });
+    }
+    try {
       await appendConversationMessage(claimed.lineUserId, {
         role: "assistant",
         text: claimed.draftReply,
@@ -146,6 +165,19 @@ async function handleRejection(
   await sendStaffChannelMessage(
     `⏸️ 返信案を却下しました。顧問先には送信していません。\n案件ID: ${rejected.id}`,
   );
+  try {
+    await appendAuditRecord({
+      approvalId,
+      eventType: "reply_rejected",
+      recordedAt: new Date().toISOString(),
+      reviewerUserId,
+    });
+  } catch (auditError) {
+    console.error("Failed to save rejection audit record", {
+      errorName: auditError instanceof Error ? auditError.name : "UnknownError",
+      approvalId,
+    });
+  }
   return { status: "rejected" };
 }
 
@@ -236,6 +268,33 @@ async function handleRevisionInstruction(
     const revised = await updateApprovalDraft(session.approvalId, "revising", draft, reviewerUserId);
     if (!revised) throw new Error("Approval changed while applying the revised draft");
     updated = true;
+    try {
+      await appendAuditRecord({
+        approvalId: session.approvalId,
+        eventType: "draft_revised",
+        recordedAt: new Date().toISOString(),
+        answer: revised.draftReply,
+        answerLevel: revised.answerLevel,
+        confidence: revised.confidence,
+        model: revised.model,
+        promptVersion: revised.promptVersion,
+        sources: revised.sources.map((source) => ({
+          title: source.title,
+          url: source.url,
+          legalReference: source.legalReference,
+          retrievedAt: source.retrievedAt,
+          quote: source.quote,
+        })),
+        assumptions: revised.assumptions,
+        referencedClientFields: revised.clientContextFieldsUsed,
+        reviewerUserId,
+      });
+    } catch (auditError) {
+      console.error("Failed to save revision audit record", {
+        errorName: auditError instanceof Error ? auditError.name : "UnknownError",
+        approvalId: session.approvalId,
+      });
+    }
     await sendStaffApprovalMessage(revised);
     await deleteRevisionSession(channelId, reviewerUserId, session.approvalId);
     return { status: "revised" };

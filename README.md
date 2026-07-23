@@ -23,6 +23,13 @@
 - 二重送信を避ける案件ステータス遷移とLINEリトライキー
 - Webhook再送時の重複案件防止
 - Upstash Redis保存（本番）／メモリ保存（ローカル）
+- 情報不足でも一般原則を先に返す回答レベルA/B/C判定
+- 標準前提、条件分岐、最大4件の追加確認
+- e-Gov・国税庁等の公式ドメインに限定したWeb検索
+- 検索注釈と一致したURLだけを採用する出典検証
+- 回答レベル、信頼度、出典、引用箇所、モデル、プロンプト版の監査保存
+- 顧問先プロファイルの任意参照と参照項目ログ
+- モデル送信前・LINE送信前の機密情報マスキング
 
 ## エンドポイント
 
@@ -45,8 +52,26 @@ npm run dev
 
 - `OPENAI_API_KEY`: OpenAI PlatformのProject API Key
 - `OPENAI_MODEL`: 既定は `gpt-4.1-mini`
+- `OPENAI_TAX_SEARCH_MODEL`: 公式ドメイン限定検索専用。既定は `gpt-5-mini`
 
 Responses APIのStructured Outputsを使い、分類結果をJSONスキーマで固定しています。
+税務根拠検索にはResponses APIのWeb検索を使い、`e-Gov法令検索（laws.e-gov.go.jp）`、国税庁、総務省、
+裁判所、国税不服審判所および設定済み地方公共団体の公式ドメインだけを許可しています。
+国税庁では、法令解釈通達、その他法令解釈情報、事務運営指針、告示、文書回答事例、
+質疑応答事例の公式入口とその配下を検索モデルへ優先候補として渡します。
+裁決事例が必要な場合は、国税不服審判所の公表裁決事例集 `https://www.kfs.go.jp/service/`
+とその配下を参照します。裁決は個別事案の参考資料として扱い、法令・通達より優先しません。
+`TAX_WEB_SEARCH_ENABLED=false` で検索を止められますが、その場合は根拠未検証として
+信頼度「低」・税理士確認対象になります。
+
+長文の指示はコードへ埋め込まず、次のファイルで管理します。
+
+- `prompts/system_prompt.md`
+- `prompts/answer_policy.md`
+- `prompts/examples.md`
+- `prompts/source_policy.md`
+
+4ファイルの内容からプロンプトバージョンを自動計算し、監査ログへ保存します。
 
 ### 2. LINE公式アカウント
 
@@ -81,11 +106,22 @@ LINE WORKS Developers ConsoleでBot、Service Account、Private Keyを準備し�
 
 未設定の場合はプロセスメモリを使います。開発確認には使えますが、再起動やサーバーレスインスタンスの切替で案件が消えるため、本番運用には使用できません。
 
+### 5. 顧問先プロファイルと監査ログ
+
+顧問先プロファイルはRedisの
+`apexbrain:line-client:<LINE userIdをSHA-256化した先頭32桁>` にJSONで保存します。
+法人・個人、決算月、消費税区分、インボイス登録、資本金、業種、届出、担当者等のうち、
+記録がある項目だけを回答生成時に渡します。使用した項目名は案件と監査ログに保存します。
+
+監査ログは案件ごとに `apexbrain:audit:<案件ID>` へ保存します。質問はマスキング後の文面、
+回答、出典URL、根拠引用、取得日時、モデル、プロンプト版、信頼度、担当者IDのハッシュを記録します。
+
 ## 動作確認
 
 ```bash
 npm run typecheck
 npm run build
+npm test
 ```
 
 開発サーバーを起動した状態で、署名付きWebhookの入口だけを確認できます。

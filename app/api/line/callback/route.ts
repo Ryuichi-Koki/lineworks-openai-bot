@@ -1,14 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
+  appendAuditRecord,
   appendConversationMessage,
   createApproval,
+  getClientProfile,
   getConversationHistory,
   type ApprovalRecord,
 } from "@/lib/approvals/store";
 import { verifyLineSignature } from "@/lib/line/verifySignature";
 import { sendStaffApprovalMessage } from "@/lib/lineworks/client";
 import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
+import { redactSensitiveText } from "@/lib/security/redaction";
 
 export const runtime = "nodejs";
 
@@ -45,8 +48,11 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   if (!event) return;
 
   const id = createHash("sha256").update(event.eventId).digest("hex").slice(0, 32);
-  const conversationHistory = await getConversationHistory(event.userId);
-  const draft = await generateReplyDraft(event.text, conversationHistory);
+  const [conversationHistory, clientProfile] = await Promise.all([
+    getConversationHistory(event.userId),
+    getClientProfile(event.userId),
+  ]);
+  const draft = await generateReplyDraft(event.text, conversationHistory, clientProfile);
   const now = new Date().toISOString();
   const record: ApprovalRecord = {
     id,
@@ -62,6 +68,33 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   };
 
   if (await createApproval(record)) {
+    try {
+      await appendAuditRecord({
+        approvalId: id,
+        eventType: "draft_generated",
+        recordedAt: now,
+        redactedQuestion: redactSensitiveText(event.text),
+        answer: draft.draftReply,
+        answerLevel: draft.answerLevel,
+        confidence: draft.confidence,
+        model: draft.model,
+        promptVersion: draft.promptVersion,
+        sources: draft.sources.map((source) => ({
+          title: source.title,
+          url: source.url,
+          legalReference: source.legalReference,
+          retrievedAt: source.retrievedAt,
+          quote: source.quote,
+        })),
+        assumptions: draft.assumptions,
+        referencedClientFields: draft.clientContextFieldsUsed,
+      });
+    } catch (error) {
+      console.error("Failed to save draft audit record", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        approvalId: id,
+      });
+    }
     try {
       await appendConversationMessage(event.userId, {
         role: "customer",

@@ -2,12 +2,15 @@
   "name": "lineworks-openai-staff-review-bot",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "eval:tax": "node --experimental-strip-types scripts/eval-tax-answers.ts"
   },
   "dependencies": {
     "next": "16.2.10",
@@ -18,7 +21,7 @@
     "@types/node": "26.1.1",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "eslint": "10.7.0",
+    "eslint": "9.39.1",
     "eslint-config-next": "16.2.10",
     "typescript": "5.9.3"
   }
