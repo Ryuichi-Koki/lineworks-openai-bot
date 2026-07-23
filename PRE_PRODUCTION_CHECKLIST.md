@@ -27,7 +27,7 @@
 
 - [x] GPT-san の一時 Webhook 利用を OFF にしたことをLINE Developersで確認
 - [x] 開発版を運用元へ反映し、SHA-256一致と全自動検証を確認
-- [ ] 推奨案（Vercel Pro、`https://bot.abtax.jp`）を事業責任者が承認
+- [x] 推奨案（Vercel Pro、`https://bot.abtax.jp`）を事業責任者が承認
 - [ ] 本番 PostgreSQL のバックアップ・復旧手順を確認
 - [ ] migration 001 → 002 → 003 の順番とトランザクション適用を承認
 - [ ] Stripe Live mode の Product / Price / Customer Portal 設定を承認
