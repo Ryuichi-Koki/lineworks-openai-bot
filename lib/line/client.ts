@@ -1,4 +1,9 @@
 import { maskLineOutput } from "../security/redaction.ts";
+import {
+  LEGAL_DOCUMENTS,
+  legalDocumentUrl,
+  type MembershipSelection,
+} from "../legal/config.ts";
 import { lineApiBaseUrl } from "./config.ts";
 
 function requireEnv(name: string): string {
@@ -20,6 +25,9 @@ export async function pushLineMessage(
     includeMembershipManagementButton?: boolean;
     membershipManagementUrl?: string;
     includeMembershipMenu?: boolean;
+    includeLegalMenu?: boolean;
+    includeLegalConsentButtons?: boolean;
+    legalPolicyVersion?: string;
     includePersistentMenuButton?: boolean;
   } = {},
 ): Promise<void> {
@@ -119,6 +127,52 @@ export async function pushLineMessage(
       },
     });
   }
+  if (options.includeLegalMenu) {
+    messagePayloads.push({
+      type: "template",
+      altText: "規約・各種情報",
+      template: {
+        type: "buttons",
+        title: "規約・各種情報",
+        text: "確認する文書を選択してください。",
+        actions: LEGAL_DOCUMENTS.map((document) => ({
+          type: "uri",
+          label: document.title.slice(0, 20),
+          uri: legalDocumentUrl(document.slug),
+        })),
+      },
+    });
+  }
+  if (options.includeLegalConsentButtons) {
+    const version = options.legalPolicyVersion?.trim();
+    if (!version) {
+      throw new Error(
+        "legalPolicyVersion is required when legal consent buttons are included",
+      );
+    }
+    const consentAction = (
+      plan: MembershipSelection,
+      label: string,
+    ): Record<string, string> => ({
+      type: "postback",
+      label,
+      data: `action=accept_policies&plan=${plan}&version=${encodeURIComponent(version)}`,
+      displayText: label,
+    });
+    messagePayloads.push({
+      type: "template",
+      altText: "規約への同意と会員登録",
+      template: {
+        type: "buttons",
+        title: "確認と同意",
+        text: "各規程と外国へのデータ移転に関する説明を確認し、登録方法を選択してください。",
+        actions: [
+          consentAction("free", "同意して無料登録"),
+          consentAction("anshin", "同意して有料登録"),
+        ],
+      },
+    });
+  }
   if (options.includePersistentMenuButton !== false) {
     const lastMessage = messagePayloads.at(-1);
     if (lastMessage) {
@@ -130,6 +184,14 @@ export async function pushLineMessage(
               type: "message",
               label: "会員メニュー",
               text: "メニュー",
+            },
+          },
+          {
+            type: "action",
+            action: {
+              type: "message",
+              label: "規約・各種情報",
+              text: "規約",
             },
           },
         ],
@@ -155,6 +217,35 @@ export async function pushLineMessage(
       `LINE push message failed with status ${response.status}: ${responseText.slice(0, 200)}`,
     );
   }
+}
+
+export async function pushLineLegalMenu(
+  userId: string,
+  retryKey: string,
+): Promise<void> {
+  await pushLineMessage(
+    userId,
+    "サービス利用規約、プライバシーポリシー、特定商取引法に基づく表記、解約・退会方法を確認できます。",
+    retryKey,
+    { includeLegalMenu: true },
+  );
+}
+
+export async function pushLineLegalConsentPrompt(
+  userId: string,
+  policyVersion: string,
+  retryKey: string,
+): Promise<void> {
+  await pushLineMessage(
+    userId,
+    "登録前に各規程をご確認ください。ボタンを押すと、サービス利用規約、プライバシーポリシー（外国にある第三者への提供を含みます。）に同意した記録を保存します。",
+    retryKey,
+    {
+      includeLegalMenu: true,
+      includeLegalConsentButtons: true,
+      legalPolicyVersion: policyVersion,
+    },
+  );
 }
 
 export async function pushLineReviewConfirmation(

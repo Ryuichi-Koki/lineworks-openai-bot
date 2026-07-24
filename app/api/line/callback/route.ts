@@ -12,9 +12,16 @@ import {
   type ApprovalRecord,
 } from "@/lib/approvals/store";
 import {
+  pushLineLegalConsentPrompt,
+  pushLineLegalMenu,
   pushLineMessage,
   pushLineReviewConfirmation,
 } from "@/lib/line/client";
+import {
+  currentPolicyVersion,
+  legalConsentRequired,
+  type MembershipSelection,
+} from "@/lib/legal/config";
 import { verifyLineSignature } from "@/lib/line/verifySignature";
 import {
   fetchLineDisplayName,
@@ -35,7 +42,9 @@ import {
   finishWebhookEvent,
   getMembershipBillingState,
   getUsageSummary,
+  hasPolicyAcceptance,
   membershipBillingEnabled,
+  recordPolicyAcceptance,
   registerMembershipUser,
   reserveUsage,
   submitReviewRequest,
@@ -86,6 +95,15 @@ type AcceptedLineEvent =
   | {
       kind: "free_membership";
       event: { eventId: string; userId: string };
+    }
+  | {
+      kind: "legal_acceptance";
+      event: {
+        eventId: string;
+        userId: string;
+        plan: MembershipSelection;
+        policyVersion: string;
+      };
     }
   | {
       kind: "review";
@@ -153,9 +171,13 @@ function getFollowEvent(
 function getFreeMembershipPostbackEvent(
   event: LineEvent,
 ): { eventId: string; userId: string } | null {
+  const postbackData =
+    typeof event.postback?.data === "string"
+      ? new URLSearchParams(event.postback.data)
+      : null;
   if (
     event.type !== "postback" ||
-    event.postback?.data !== "action=select_free_membership" ||
+    postbackData?.get("action") !== "select_free_membership" ||
     event.source?.type !== "user" ||
     typeof event.source.userId !== "string"
   ) {
@@ -170,8 +192,51 @@ function getFreeMembershipPostbackEvent(
   };
 }
 
+function getLegalAcceptancePostbackEvent(
+  event: LineEvent,
+): {
+  eventId: string;
+  userId: string;
+  plan: MembershipSelection;
+  policyVersion: string;
+} | null {
+  if (
+    event.type !== "postback" ||
+    typeof event.postback?.data !== "string" ||
+    event.source?.type !== "user" ||
+    typeof event.source.userId !== "string"
+  ) {
+    return null;
+  }
+  const params = new URLSearchParams(event.postback.data);
+  const plan = params.get("plan");
+  const policyVersion = params.get("version")?.trim();
+  if (
+    params.get("action") !== "accept_policies" ||
+    (plan !== "free" && plan !== "anshin") ||
+    !policyVersion
+  ) {
+    return null;
+  }
+  return {
+    eventId:
+      typeof event.webhookEventId === "string"
+        ? event.webhookEventId
+        : `${event.source.userId}:${event.postback.data}`,
+    userId: event.source.userId,
+    plan,
+    policyVersion,
+  };
+}
+
 function isMembershipMenuInquiry(text: string): boolean {
   return /^\s*(?:メニュー|会員メニュー|各種手続き)\s*[。！!？?]?\s*$/.test(text);
+}
+
+function isLegalMenuInquiry(text: string): boolean {
+  return /^\s*(?:規約|規約・各種情報|利用規約|プライバシーポリシー|特商法)\s*[。！!？?]?\s*$/.test(
+    text,
+  );
 }
 
 async function showMembershipMenu(
@@ -180,7 +245,16 @@ async function showMembershipMenu(
 ): Promise<void> {
   await pushLineMessage(userId, message, randomUUID(), {
     includeMembershipMenu: true,
+    includeLegalMenu: true,
   });
+}
+
+async function showLegalConsentPrompt(userId: string): Promise<void> {
+  await pushLineLegalConsentPrompt(
+    userId,
+    currentPolicyVersion(),
+    randomUUID(),
+  );
 }
 
 function getReviewPostbackEvent(
@@ -449,13 +523,27 @@ async function submitTaxProfessionalReview(event: {
 async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise<void> {
   if (!event) return;
 
+  if (isLegalMenuInquiry(event.text)) {
+    await pushLineLegalMenu(event.userId, randomUUID());
+    return;
+  }
+
+  const billingActive = membershipBillingEnabled();
+  if (
+    billingActive &&
+    legalConsentRequired() &&
+    !(await hasPolicyAcceptance(event.userId, currentPolicyVersion()))
+  ) {
+    await showLegalConsentPrompt(event.userId);
+    return;
+  }
+
   const id = createHash("sha256").update(event.eventId).digest("hex").slice(0, 32);
   const [conversationHistory, clientProfile] = await Promise.all([
     getConversationHistory(event.userId),
     getClientProfile(event.userId),
   ]);
   const now = new Date().toISOString();
-  const billingActive = membershipBillingEnabled();
   if (billingActive) {
     const registration = await registerMembershipUser(event.userId);
     if (!registration.displayName) {
@@ -519,7 +607,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
       );
     if (!stripeMembership) {
       const message =
-        "有効なStripe契約が見つかりませんでした。LINEメンバーシップで加入している場合は、LINE内の会員設定から退会状況をご確認ください。";
+        "有効なStripe契約はないため、有料会員の解約手続は不要です。無料会員の利用終了又は個人データの削除・利用停止を希望する場合は、info@abtax.jp又は当法人ウェブサイトのお問い合わせフォームからご連絡ください。LINEメンバーシップで加入している場合は、LINE内の会員設定から退会状況をご確認ください。";
       await pushLineMessage(event.userId, message, randomUUID());
       await Promise.all([
         appendConversationMessage(event.userId, {
@@ -773,6 +861,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       continue;
     }
     const freeMembershipEvent = getFreeMembershipPostbackEvent(event);
+    const legalAcceptanceEvent = getLegalAcceptancePostbackEvent(event);
+    if (legalAcceptanceEvent) {
+      acceptedEvents.push({
+        kind: "legal_acceptance",
+        event: legalAcceptanceEvent,
+      });
+      eventPayloadHashes.set(legalAcceptanceEvent.eventId, payloadHash);
+      continue;
+    }
     if (freeMembershipEvent) {
       acceptedEvents.push({
         kind: "free_membership",
@@ -812,44 +909,116 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       try {
         if (accepted.kind === "onboarding") {
-          const registration = await registerMembershipUser(
-            accepted.event.userId,
-          );
-          if (!registration.displayName) {
-            const fetchedName = await fetchLineDisplayName(
+          if (legalConsentRequired()) {
+            await showLegalConsentPrompt(accepted.event.userId);
+          } else {
+            const registration = await registerMembershipUser(
               accepted.event.userId,
             );
-            if (fetchedName) {
-              await updateMembershipDisplayName(
+            if (!registration.displayName) {
+              const fetchedName = await fetchLineDisplayName(
                 accepted.event.userId,
-                fetchedName,
               );
+              if (fetchedName) {
+                await updateMembershipDisplayName(
+                  accepted.event.userId,
+                  fetchedName,
+                );
+              }
+            }
+            await showMembershipMenu(
+              accepted.event.userId,
+              "友だち追加ありがとうございます。無料会員または有料のあんしん会員を選択してください。",
+            );
+          }
+        } else if (accepted.kind === "legal_acceptance") {
+          if (!legalConsentRequired()) {
+            await showMembershipMenu(
+              accepted.event.userId,
+              "規程本文は現在準備中のため、同意受付はまだ開始していません。",
+            );
+          } else {
+            const expectedVersion = currentPolicyVersion();
+            if (accepted.event.policyVersion !== expectedVersion) {
+              await showLegalConsentPrompt(accepted.event.userId);
+            } else {
+              await recordPolicyAcceptance({
+                lineUserId: accepted.event.userId,
+                policyVersion: expectedVersion,
+                idempotencyKey: accepted.event.eventId,
+              });
+              const registration = await registerMembershipUser(
+                accepted.event.userId,
+              );
+              if (!registration.displayName) {
+                const fetchedName = await fetchLineDisplayName(
+                  accepted.event.userId,
+                );
+                if (fetchedName) {
+                  await updateMembershipDisplayName(
+                    accepted.event.userId,
+                    fetchedName,
+                  );
+                }
+              }
+              if (accepted.event.plan === "free") {
+                await showMembershipMenu(
+                  accepted.event.userId,
+                  "規約への同意を記録し、無料会員として登録しました。AI回答を毎月10回まで利用できます。",
+                );
+              } else if (stripeBillingEnabled()) {
+                const checkoutUrl = await createSubscriptionCheckoutSession({
+                  lineUserId: accepted.event.userId,
+                  planCode: "anshin",
+                  idempotencyKey: accepted.event.eventId,
+                });
+                await pushLineMessage(
+                  accepted.event.userId,
+                  `${TAX_AI_PRICING_MESSAGE}\n\n規約への同意を記録しました。下のボタンから決済へ進んでください。`,
+                  randomUUID(),
+                  {
+                    includeMembershipJoinButton: true,
+                    membershipJoinUrl: checkoutUrl,
+                  },
+                );
+              } else {
+                await showMembershipMenu(
+                  accepted.event.userId,
+                  `${TAX_AI_PRICING_MESSAGE}\n\n規約への同意を記録しました。現在、決済受付は準備中です。`,
+                );
+              }
             }
           }
-          await showMembershipMenu(
-            accepted.event.userId,
-            "友だち追加ありがとうございます。無料会員または有料のあんしん会員を選択してください。",
-          );
         } else if (accepted.kind === "free_membership") {
-          const registration = await registerMembershipUser(
-            accepted.event.userId,
-          );
-          const billingState = await getMembershipBillingState(
-            accepted.event.userId,
-          );
-          const hasPaidSubscription =
-            billingState?.provider === "stripe" &&
-            ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
-              billingState.status,
+          if (
+            legalConsentRequired() &&
+            !(await hasPolicyAcceptance(
+              accepted.event.userId,
+              currentPolicyVersion(),
+            ))
+          ) {
+            await showLegalConsentPrompt(accepted.event.userId);
+          } else {
+            const registration = await registerMembershipUser(
+              accepted.event.userId,
             );
-          await showMembershipMenu(
-            accepted.event.userId,
-            hasPaidSubscription
-              ? "現在は有料契約中です。無料会員への変更は「退会・契約管理」から期間末解約を行ってください。"
-              : registration.isNew
-                ? "無料会員として登録しました。AI回答を毎月10回まで利用できます。"
-                : "現在、無料会員として利用できます。",
-          );
+            const billingState = await getMembershipBillingState(
+              accepted.event.userId,
+            );
+            const hasPaidSubscription =
+              billingState?.provider === "stripe" &&
+              ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
+                billingState.status,
+              );
+            await showMembershipMenu(
+              accepted.event.userId,
+              hasPaidSubscription
+                ? "現在は有料契約中です。無料会員への変更は「退会・契約管理」から期間末解約を行ってください。"
+                : registration.isNew
+                  ? "無料会員として登録しました。AI回答を毎月10回まで利用できます。"
+                  : "現在、無料会員として利用できます。",
+            );
+          }
         } else if (accepted.kind === "membership") {
           await handleMembershipEvent(accepted.event);
         } else if (accepted.kind === "review") {

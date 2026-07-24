@@ -337,6 +337,78 @@ test("通常返信からいつでも会員メニューを呼び出せる", async
   };
   assert.equal(quickReply.items?.[0]?.action?.label, "会員メニュー");
   assert.equal(quickReply.items?.[0]?.action?.text, "メニュー");
+  assert.equal(quickReply.items?.[1]?.action?.label, "規約・各種情報");
+  assert.equal(quickReply.items?.[1]?.action?.text, "規約");
+});
+
+test("LINEから規約4ページと無料・有料の同意登録を選択できる", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const originalLegalBaseUrl = process.env.LEGAL_APP_BASE_URL;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  process.env.LEGAL_APP_BASE_URL = "https://bot.abtax.jp";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage(
+      "line-user",
+      "登録前に規程をご確認ください。",
+      randomUUID(),
+      {
+        includeLegalMenu: true,
+        includeLegalConsentButtons: true,
+        legalPolicyVersion: "2026-07-24-v1",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+    if (originalLegalBaseUrl === undefined) {
+      delete process.env.LEGAL_APP_BASE_URL;
+    } else {
+      process.env.LEGAL_APP_BASE_URL = originalLegalBaseUrl;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  assert.equal(messages.length, 3);
+  const legalTemplate = messages[1]?.template as {
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(
+    legalTemplate.actions?.map((action) => action.uri),
+    [
+      "https://bot.abtax.jp/terms",
+      "https://bot.abtax.jp/privacy",
+      "https://bot.abtax.jp/tokusho",
+      "https://bot.abtax.jp/cancellation",
+    ],
+  );
+  const consentTemplate = messages[2]?.template as {
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(
+    consentTemplate.actions?.map((action) => action.label),
+    ["同意して無料登録", "同意して有料登録"],
+  );
+  assert.equal(
+    consentTemplate.actions?.[0]?.data,
+    "action=accept_policies&plan=free&version=2026-07-24-v1",
+  );
+  assert.equal(
+    consentTemplate.actions?.[1]?.data,
+    "action=accept_policies&plan=anshin&version=2026-07-24-v1",
+  );
 });
 
 test("料金案内には指定されたStripe Checkout URLだけを登録ボタンへ設定する", async () => {

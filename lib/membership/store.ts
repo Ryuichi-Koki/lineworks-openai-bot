@@ -107,6 +107,53 @@ export async function updateMembershipDisplayName(
   `;
 }
 
+export async function hasPolicyAcceptance(
+  lineUserId: string,
+  policyVersion: string,
+): Promise<boolean> {
+  const sql = database();
+  const rows = await sql`
+    select 1
+    from policy_acceptances
+    where line_user_id = ${lineUserId}
+      and policy_version = ${policyVersion}
+      and terms_accepted = true
+      and privacy_accepted = true
+      and foreign_transfer_accepted = true
+    limit 1
+  `;
+  return Boolean(rows[0]);
+}
+
+export async function recordPolicyAcceptance(input: {
+  lineUserId: string;
+  policyVersion: string;
+  idempotencyKey: string;
+  source?: "line_postback" | "admin_import";
+}): Promise<void> {
+  const sql = database();
+  await sql`
+    insert into policy_acceptances (
+      line_user_id,
+      policy_version,
+      terms_accepted,
+      privacy_accepted,
+      foreign_transfer_accepted,
+      source,
+      idempotency_key
+    ) values (
+      ${input.lineUserId},
+      ${input.policyVersion},
+      true,
+      true,
+      true,
+      ${input.source ?? "line_postback"},
+      ${input.idempotencyKey}
+    )
+    on conflict (idempotency_key) do nothing
+  `;
+}
+
 export async function reserveUsage(input: {
   lineUserId: string;
   usageType: UsageType;
