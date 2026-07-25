@@ -699,18 +699,34 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
           billingState.status,
         ),
     );
-    const stripeJoinUrl =
-      stripeBillingEnabled() && !alreadyPaid
-        ? await createSubscriptionCheckoutSession({
-            lineUserId: event.userId,
-            planCode: "anshin",
-            idempotencyKey: event.eventId,
-          })
-        : undefined;
-    await pushLineMessage(event.userId, TAX_AI_PRICING_MESSAGE, randomUUID(), {
-      includeMembershipJoinButton: !alreadyPaid,
-      membershipJoinUrl: stripeJoinUrl,
-    });
+    let stripeJoinUrl: string | undefined;
+    let stripeCheckoutFailed = false;
+    if (stripeBillingEnabled() && !alreadyPaid) {
+      try {
+        stripeJoinUrl = await createSubscriptionCheckoutSession({
+          lineUserId: event.userId,
+          planCode: "anshin",
+          idempotencyKey: event.eventId,
+        });
+      } catch (error) {
+        stripeCheckoutFailed = true;
+        console.error("Stripe Checkout creation failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+    await pushLineMessage(
+      event.userId,
+      stripeCheckoutFailed
+        ? `${TAX_AI_PRICING_MESSAGE}\n\n現在、決済ページを作成できません。時間をおいてもう一度お試しください。`
+        : TAX_AI_PRICING_MESSAGE,
+      randomUUID(),
+      {
+        includeMembershipJoinButton: !alreadyPaid,
+        membershipJoinUrl: stripeJoinUrl,
+      },
+    );
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
@@ -1066,20 +1082,32 @@ export async function POST(request: Request): Promise<NextResponse> {
                 "現在は有料契約中です。",
               );
             } else if (stripeBillingEnabled()) {
-              const checkoutUrl = await createSubscriptionCheckoutSession({
-                lineUserId: accepted.event.userId,
-                planCode: "anshin",
-                idempotencyKey: accepted.event.eventId,
-              });
-              await pushLineMessage(
-                accepted.event.userId,
-                `${TAX_AI_PRICING_MESSAGE}\n\n有料会員を選択しました。下のボタンから決済へ進んでください。`,
-                randomUUID(),
-                {
-                  includeMembershipJoinButton: true,
-                  membershipJoinUrl: checkoutUrl,
-                },
-              );
+              try {
+                const checkoutUrl = await createSubscriptionCheckoutSession({
+                  lineUserId: accepted.event.userId,
+                  planCode: "anshin",
+                  idempotencyKey: accepted.event.eventId,
+                });
+                await pushLineMessage(
+                  accepted.event.userId,
+                  `${TAX_AI_PRICING_MESSAGE}\n\n有料会員を選択しました。下のボタンから決済へ進んでください。`,
+                  randomUUID(),
+                  {
+                    includeMembershipJoinButton: true,
+                    membershipJoinUrl: checkoutUrl,
+                  },
+                );
+              } catch (error) {
+                console.error("Stripe Checkout creation failed", {
+                  errorName: error instanceof Error ? error.name : "UnknownError",
+                  errorMessage:
+                    error instanceof Error ? error.message : "Unknown error",
+                });
+                await sendMembershipStatus(
+                  accepted.event.userId,
+                  "決済ページの作成に失敗しました。時間をおいて、もう一度「有料会員」を押してください。",
+                );
+              }
             } else {
               await sendMembershipStatus(
                 accepted.event.userId,
