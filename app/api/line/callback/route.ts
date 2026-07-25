@@ -18,6 +18,7 @@ import {
   pushLineMessage,
   pushLineReviewConfirmation,
 } from "@/lib/line/client";
+import { isLineUserAllowed } from "@/lib/line/allowlist";
 import {
   currentPolicyVersion,
   legalConsentRequired,
@@ -900,6 +901,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const acceptedEvents: AcceptedLineEvent[] = [];
   const eventPayloadHashes = new Map<string, string>();
   for (const event of events) {
+    const sourceUserId =
+      event.source && typeof event.source.userId === "string"
+        ? event.source.userId
+        : null;
+    if (sourceUserId && !isLineUserAllowed(sourceUserId)) {
+      continue;
+    }
     const payloadHash = createHash("sha256")
       .update(JSON.stringify(event))
       .digest("hex");
