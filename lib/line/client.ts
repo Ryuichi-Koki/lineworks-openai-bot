@@ -2,7 +2,6 @@ import { maskLineOutput } from "../security/redaction.ts";
 import {
   LEGAL_DOCUMENTS,
   legalDocumentUrl,
-  type MembershipSelection,
 } from "../legal/config.ts";
 import { lineApiBaseUrl } from "./config.ts";
 
@@ -27,6 +26,7 @@ export async function pushLineMessage(
     includeMembershipMenu?: boolean;
     includeLegalMenu?: boolean;
     includeLegalConsentButtons?: boolean;
+    includeMembershipSelectionButtons?: boolean;
     legalPolicyVersion?: string;
     includePersistentMenuButton?: boolean;
   } = {},
@@ -150,25 +150,45 @@ export async function pushLineMessage(
         "legalPolicyVersion is required when legal consent buttons are included",
       );
     }
-    const consentAction = (
-      plan: MembershipSelection,
-      label: string,
-    ): Record<string, string> => ({
-      type: "postback",
-      label,
-      data: `action=accept_policies&plan=${plan}&version=${encodeURIComponent(version)}`,
-      displayText: label,
-    });
     messagePayloads.push({
       type: "template",
-      altText: "規約への同意と会員登録",
+      altText: "規約等への確認と同意",
       template: {
         type: "buttons",
-        title: "確認と同意",
-        text: "各規程と外国へのデータ移転に関する説明を確認し、登録方法を選択してください。",
+        title: "規約等への確認・同意",
+        text: "各規程と外国へのデータ移転に関する説明を確認し、同意する場合は下のチェックボタンを押してください。",
         actions: [
-          consentAction("free", "同意して無料登録"),
-          consentAction("anshin", "同意して有料登録"),
+          {
+            type: "postback",
+            label: "☐ 規約等に同意する",
+            data: `action=accept_policies&version=${encodeURIComponent(version)}`,
+            displayText: "規約等に同意します",
+          },
+        ],
+      },
+    });
+  }
+  if (options.includeMembershipSelectionButtons) {
+    messagePayloads.push({
+      type: "template",
+      altText: "無料会員または有料会員を選択",
+      template: {
+        type: "buttons",
+        title: "会員種別を選択",
+        text: "☑ 規約等への同意を記録しました。続けて会員種別を選択してください。",
+        actions: [
+          {
+            type: "postback",
+            label: "無料会員を選ぶ",
+            data: "action=select_free_membership",
+            displayText: "無料会員を選びます",
+          },
+          {
+            type: "postback",
+            label: "有料会員を選ぶ",
+            data: "action=select_paid_membership",
+            displayText: "有料会員を選びます",
+          },
         ],
       },
     });
@@ -245,6 +265,18 @@ export async function pushLineLegalConsentPrompt(
       includeLegalConsentButtons: true,
       legalPolicyVersion: policyVersion,
     },
+  );
+}
+
+export async function pushLineMembershipSelectionPrompt(
+  userId: string,
+  retryKey: string,
+): Promise<void> {
+  await pushLineMessage(
+    userId,
+    "規約等への同意が確認できました。",
+    retryKey,
+    { includeMembershipSelectionButtons: true },
   );
 }
 
