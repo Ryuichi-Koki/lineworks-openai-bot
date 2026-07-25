@@ -35,9 +35,14 @@
     <text x="2187.5" y="696" fill="#ffffff" font-size="48" font-weight="700">手続きを開く</text>
   </g>
 
+  <g font-family="'Yu Gothic', 'Meiryo', sans-serif" text-anchor="middle">
+    <rect x="0" y="0" width="2500" height="112" fill="#8b1e2d"/>
+    <text x="1250" y="74" fill="#ffffff" font-size="48" font-weight="700">⚠ 個人情報（氏名・住所・電話番号・マイナンバー等）は送信しないでください</text>
+  </g>
+
   <g stroke="#ffffff" stroke-width="8" opacity="0.9">
-    <line x1="625" y1="0" x2="625" y2="843"/>
-    <line x1="1250" y1="0" x2="1250" y2="843"/>
-    <line x1="1875" y1="0" x2="1875" y2="843"/>
+    <line x1="625" y1="112" x2="625" y2="843"/>
+    <line x1="1250" y1="112" x2="1250" y2="843"/>
+    <line x1="1875" y1="112" x2="1875" y2="843"/>
   </g>
 </svg>
