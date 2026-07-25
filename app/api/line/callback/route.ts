@@ -454,14 +454,15 @@ async function startTaxProfessionalReview(event: {
       .map((message) => message.text)
       .join("\n")
       .slice(0, 1200) || "直前の税務相談";
+  const safeQuestionSummary = redactSensitiveText(questionSummary);
   const reviewRequestId = await createReviewDraft({
     lineUserId: event.userId,
     conversationId: event.eventId,
-    summary: redactSensitiveText(questionSummary),
+    summary: safeQuestionSummary,
   });
   await pushLineReviewConfirmation(
     event.userId,
-    questionSummary,
+    safeQuestionSummary,
     reviewRequestId,
     randomUUID(),
   );
@@ -492,20 +493,21 @@ async function startTaxProfessionalReviewIntake(event: {
 async function confirmTaxReviewIntake(
   event: { eventId: string; userId: string; text: string },
 ): Promise<void> {
+  const safeCustomerText = redactSensitiveText(event.text).slice(0, 1200);
   const reviewRequestId = await createReviewDraft({
     lineUserId: event.userId,
     conversationId: event.eventId,
-    summary: redactSensitiveText(event.text).slice(0, 1200),
+    summary: safeCustomerText,
   });
   await pushLineReviewConfirmation(
     event.userId,
-    event.text,
+    safeCustomerText,
     reviewRequestId,
     randomUUID(),
   );
   await appendConversationMessage(event.userId, {
     role: "customer",
-    text: event.text,
+    text: safeCustomerText,
     createdAt: new Date().toISOString(),
   });
 }
@@ -552,6 +554,7 @@ async function submitTaxProfessionalReview(event: {
 
 async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise<void> {
   if (!event) return;
+  const safeCustomerText = redactSensitiveText(event.text).slice(0, 8000);
 
   if (isLegalMenuInquiry(event.text)) {
     await pushLineLegalMenu(event.userId, randomUUID());
@@ -648,7 +651,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
       await Promise.all([
         appendConversationMessage(event.userId, {
           role: "customer",
-          text: event.text,
+          text: safeCustomerText,
           createdAt: now,
         }),
         appendConversationMessage(event.userId, {
@@ -674,7 +677,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
-        text: event.text,
+        text: safeCustomerText,
         createdAt: now,
       }),
       appendConversationMessage(event.userId, {
@@ -711,7 +714,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
-        text: event.text,
+        text: safeCustomerText,
         createdAt: now,
       }),
       appendConversationMessage(event.userId, {
@@ -741,7 +744,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   let generatedDraft: Awaited<ReturnType<typeof generateReplyDraft>>;
   try {
     generatedDraft = await generateReplyDraft(
-      event.text,
+      safeCustomerText,
       conversationHistory,
       clientProfile,
     );
@@ -770,7 +773,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     id,
     sourceEventId: event.eventId,
     lineUserId: event.userId,
-    customerMessage: event.text,
+    customerMessage: safeCustomerText,
     lineRetryKey: randomUUID(),
     ...draft,
     revision: 0,
@@ -790,7 +793,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
         approvalId: id,
         eventType: "draft_generated",
         recordedAt: now,
-        redactedQuestion: redactSensitiveText(event.text),
+        redactedQuestion: safeCustomerText,
         answer: draft.draftReply,
         answerLevel: draft.answerLevel,
         confidence: draft.confidence,
@@ -815,7 +818,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     try {
       await appendConversationMessage(event.userId, {
         role: "customer",
-        text: event.text,
+        text: safeCustomerText,
         createdAt: now,
       });
     } catch (error) {
