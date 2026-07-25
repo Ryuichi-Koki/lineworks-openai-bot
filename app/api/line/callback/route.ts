@@ -27,7 +27,11 @@ import {
   fetchLineDisplayName,
   fetchLineMembership,
 } from "@/lib/membership/lineMembership";
-import { appendUsageSummary, buildLimitMessage } from "@/lib/membership/messages";
+import {
+  appendUsageSummary,
+  buildLimitMessage,
+  buildPaidPeriodLine,
+} from "@/lib/membership/messages";
 import {
   beginWebhookEvent,
   cancelTaxReviewIntake,
@@ -440,7 +444,7 @@ async function startTaxProfessionalReview(event: {
     const message =
       summary.planCode === "free"
         ? "税理士確認は、あんしん会員でご利用いただけます。"
-        : `今期の税理士確認枠を使い切りました。\n次回更新日：${summary.periodEnd}`;
+        : `今期の税理士確認枠を使い切りました。\n${buildPaidPeriodLine(summary.membershipStatus, summary.periodEnd)}`;
     await pushLineMessage(event.userId, message, randomUUID(), {
       includeMembershipJoinButton: summary.planCode === "free",
     });
@@ -476,7 +480,7 @@ async function startTaxProfessionalReviewIntake(event: {
     const message =
       summary.planCode === "free"
         ? "税理士への個別相談は、あんしん会員でご利用いただけます。"
-        : `今期の税理士相談枠を使い切りました。\n次回更新日：${summary.periodEnd}`;
+        : `今期の税理士相談枠を使い切りました。\n${buildPaidPeriodLine(summary.membershipStatus, summary.periodEnd)}`;
     await pushLineMessage(event.userId, message, randomUUID(), {
       includeMembershipJoinButton: summary.planCode === "free",
     });
@@ -525,7 +529,7 @@ async function submitTaxProfessionalReview(event: {
   if (!reservation.allowed || !reservation.usageEventId) {
     await pushLineMessage(
       event.userId,
-      `今期の税理士確認枠を使い切りました。\n次回更新日：${reservation.periodEnd}`,
+      `今期の税理士確認枠を使い切りました。\n${buildPaidPeriodLine(reservation.membershipStatus, reservation.periodEnd)}`,
       randomUUID(),
     );
     return;
