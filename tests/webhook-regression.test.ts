@@ -341,7 +341,7 @@ test("通常返信からいつでも会員メニューを呼び出せる", async
   assert.equal(quickReply.items?.[1]?.action?.text, "規約");
 });
 
-test("LINEから規約4ページと無料・有料の同意登録を選択できる", async () => {
+test("LINEから規約4ページを確認し、チェック式で明示同意できる", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const originalLegalBaseUrl = process.env.LEGAL_APP_BASE_URL;
@@ -399,15 +399,60 @@ test("LINEから規約4ページと無料・有料の同意登録を選択でき
   };
   assert.deepEqual(
     consentTemplate.actions?.map((action) => action.label),
-    ["同意して無料登録", "同意して有料登録"],
+    ["☐ 規約等に同意する"],
   );
   assert.equal(
     consentTemplate.actions?.[0]?.data,
-    "action=accept_policies&plan=free&version=2026-07-24-v1",
+    "action=accept_policies&version=2026-07-24-v1",
+  );
+  assert.equal(consentTemplate.actions?.[0]?.displayText, "規約等に同意します");
+});
+
+test("規約等への同意後に無料会員か有料会員を選択できる", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage(
+      "line-user",
+      "規約等への同意が確認できました。",
+      randomUUID(),
+      { includeMembershipSelectionButtons: true },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  const selectionTemplate = messages.at(-1)?.template as {
+    text?: string;
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.match(selectionTemplate.text ?? "", /☑ 規約等への同意を記録/);
+  assert.deepEqual(
+    selectionTemplate.actions?.map((action) => action.label),
+    ["無料会員を選ぶ", "有料会員を選ぶ"],
   );
   assert.equal(
-    consentTemplate.actions?.[1]?.data,
-    "action=accept_policies&plan=anshin&version=2026-07-24-v1",
+    selectionTemplate.actions?.[0]?.data,
+    "action=select_free_membership",
+  );
+  assert.equal(
+    selectionTemplate.actions?.[1]?.data,
+    "action=select_paid_membership",
   );
 });
 
