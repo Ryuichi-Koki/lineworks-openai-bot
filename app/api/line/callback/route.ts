@@ -63,6 +63,7 @@ import { isClarificationOnly } from "@/lib/tax/policy";
 import {
   buildCustomerReply,
   buildReviewRequestReceipt,
+  buildTaxReviewIntakePrompt,
   isMembershipCancellationInquiry,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
@@ -483,15 +484,7 @@ async function startTaxProfessionalReviewIntake(event: {
   await startTaxReviewIntake(event.userId);
   await pushLineMessage(
     event.userId,
-    [
-      "税理士への相談内容を入力してください。",
-      "",
-      "【ご注意】氏名、住所、電話番号、メールアドレス、マイナンバー、口座・カード情報など、個人を特定できる情報や機密情報は送信しないでください。",
-      "",
-      "次に送信する1通を相談内容として受け付けます。",
-      "送信後に内容確認画面が表示されます。受付時間は30分です。",
-      "中止する場合は「相談キャンセル」と送信してください。",
-    ].join("\n"),
+    buildTaxReviewIntakePrompt(),
     randomUUID(),
   );
 }
