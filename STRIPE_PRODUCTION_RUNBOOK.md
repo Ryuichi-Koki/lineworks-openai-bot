@@ -3,11 +3,20 @@
 対象: abtax.jp の税務・会計サービス
 対象製品: Stripe Payments / Billing / Invoicing / Tax
 作成日: 2026-07-23
+最終監査: 2026-07-25
 
 ## 1. 現在の結論
 
-Sandbox とローカル PostgreSQL を使った購入、Webhook、会員権反映、
-Customer Portal からの期間末解約は確認済みです。
+Vercel Production 上の `bot.abtax.jp` に、Stripeテストモードと
+SupabaseテストDBを接続しています。LINE「GPT-san」で次を確認済みです。
+
+- 規約への明示同意後の無料・有料プラン選択
+- StripeテストCheckoutとWebhookによる会員権反映
+- 税理士相談の受付、LINE WORKS通知、返信
+- Customer Portalからの期間末解約
+- 退会予約中の有料権限維持と利用期限表示
+
+ホスティング先はProductionですが、課金・DBはいずれもテスト用です。
 
 ただし、現在のコードは意図的に Stripe 本番モードを拒否します。
 
@@ -90,6 +99,7 @@ STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ANSHIN
 STRIPE_PRICE_PREMIUM
+# 任意。テストでは既定設定を使用可能。ライブでは専用設定を推奨。
 STRIPE_PORTAL_CONFIGURATION_ID
 STRIPE_APP_BASE_URL=https://...
 ```
@@ -97,7 +107,8 @@ STRIPE_APP_BASE_URL=https://...
 - `STRIPE_SECRET_KEY`: 本番では制限付きキーを優先し、必要権限だけを付与する。
 - `STRIPE_WEBHOOK_SECRET`: API キーとは別の、対象 Endpoint 固有の署名Secret。
 - Price、Portal configuration、Webhook Endpoint は test/live 間で別物として
-  作成する。
+  作成する。ライブでは既定Portal設定に依存せず、専用configuration IDを
+  明示登録する。
 - 公開可能キーは、現行の Stripe-hosted Checkout / Portal のサーバー統合では
   必須ではない。ブラウザで Stripe.js を使う機能を追加するときだけ
   `pk_live_` を公開側へ設定する。

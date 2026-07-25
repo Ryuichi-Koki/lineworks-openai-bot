@@ -44,8 +44,10 @@ const checks = [
   },
   {
     name: "STRIPE_PORTAL_CONFIGURATION_ID",
-    ok: (env.STRIPE_PORTAL_CONFIGURATION_ID ?? "").startsWith("bpc_"),
-    requirement: "sandbox Customer Portal configuration",
+    ok:
+      !(env.STRIPE_PORTAL_CONFIGURATION_ID ?? "") ||
+      (env.STRIPE_PORTAL_CONFIGURATION_ID ?? "").startsWith("bpc_"),
+    requirement: "optional sandbox Customer Portal configuration",
   },
   {
     name: "STRIPE_APP_BASE_URL",
@@ -68,6 +70,11 @@ const checks = [
     name: "migration 003",
     ok: existsSync(resolve(root, "migrations", "003_tax_review_intakes.sql")),
     requirement: "tax-review intake state migration",
+  },
+  {
+    name: "migration 004",
+    ok: existsSync(resolve(root, "migrations", "004_policy_acceptances.sql")),
+    requirement: "policy-acceptance audit migration",
   },
 ];
 
