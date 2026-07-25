@@ -66,9 +66,10 @@ export const richMenuDefinition = {
     {
       bounds: { x: 0, y: 0, width: 625, height: 843 },
       action: {
-        type: "message",
+        type: "postback",
         label: "有料会員になる",
-        text: "料金を教えて",
+        data: "action=select_paid_membership",
+        displayText: "有料会員の登録手続きへ進みます",
       },
     },
     {
