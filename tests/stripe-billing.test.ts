@@ -4,7 +4,10 @@ import {
   assertSafeStripePortalUrl,
   buildSubscriptionCheckoutParams,
 } from "../lib/stripe/billing.ts";
-import { assertSafeStripeSecret } from "../lib/stripe/config.ts";
+import {
+  assertSafeStripeSecret,
+  assertStripeObjectMode,
+} from "../lib/stripe/config.ts";
 import {
   inclusiveEndDateFromUnix,
   isoDateFromUnix,
@@ -12,10 +15,24 @@ import {
   stripeSubscriptionStatus,
 } from "../lib/stripe/mapping.ts";
 
-test("Stripe integration rejects live and malformed secret keys", () => {
+test("Stripe integration requires explicit mode-matched keys", () => {
   assert.doesNotThrow(() => assertSafeStripeSecret("sk_test_example"));
   assert.throws(() => assertSafeStripeSecret("sk_live_example"), /test-mode/);
   assert.throws(() => assertSafeStripeSecret("not-a-stripe-key"), /test-mode/);
+  assert.throws(
+    () => assertSafeStripeSecret("sk_live_example", "live", false),
+    /STRIPE_LIVE_MODE_ENABLED/,
+  );
+  assert.doesNotThrow(() =>
+    assertSafeStripeSecret("rk_live_example", "live", true),
+  );
+});
+
+test("Stripe objects and webhooks must match the configured mode", () => {
+  assert.doesNotThrow(() => assertStripeObjectMode(false, "test"));
+  assert.doesNotThrow(() => assertStripeObjectMode(true, "live"));
+  assert.throws(() => assertStripeObjectMode(true, "test"), /does not match/);
+  assert.throws(() => assertStripeObjectMode(false, "live"), /does not match/);
 });
 
 test("Stripe subscription states map to local entitlement states", () => {

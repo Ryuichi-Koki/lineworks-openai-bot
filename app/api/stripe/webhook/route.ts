@@ -5,7 +5,10 @@ import {
   finishWebhookEvent,
 } from "@/lib/membership/store";
 import { stripeClient } from "@/lib/stripe/client";
-import { requireStripeEnv } from "@/lib/stripe/config";
+import {
+  assertStripeObjectMode,
+  requireStripeEnv,
+} from "@/lib/stripe/config";
 import { processStripeEvent } from "@/lib/stripe/webhooks";
 
 export const runtime = "nodejs";
@@ -27,9 +30,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: "Invalid Stripe signature" }, { status: 400 });
   }
-  if (event.livemode) {
+  try {
+    assertStripeObjectMode(event.livemode);
+  } catch {
     return NextResponse.json(
-      { error: "Live-mode Stripe events are disabled" },
+      { error: "Stripe event mode mismatch" },
       { status: 400 },
     );
   }

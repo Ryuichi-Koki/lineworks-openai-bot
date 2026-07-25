@@ -18,16 +18,15 @@ SupabaseテストDBを接続しています。LINE「GPT-san」で次を確認�
 
 ホスティング先はProductionですが、課金・DBはいずれもテスト用です。
 
-ただし、現在のコードは意図的に Stripe 本番モードを拒否します。
+現在のコードは明示的な環境分離を必須にします。
 
-- `lib/stripe/config.ts` は `sk_test_` 以外の秘密鍵を拒否する。
-- `app/api/stripe/webhook/route.ts` は `livemode=true` のイベントを拒否する。
+- 既定の `STRIPE_MODE=test` は `sk_test_` とテストイベントだけを許可する。
+- `STRIPE_MODE=live` は `STRIPE_LIVE_MODE_ENABLED=true`との二重許可が必要。
+- APIキー、Checkout、Portal、Invoice、Webhookのmode不一致を拒否する。
 - `scripts/check-stripe-readiness.mjs` は `sk_live_` を検出すると停止する。
 
-したがって、現状をそのまま本番へ配置しても本番課金は開始できません。
-これは事故防止のための正常な停止状態です。本番対応コードへの変更、本番用
-Secrets、DB migration、デプロイ、実顧客への有効化、Git push は、それぞれ
-明示承認後にだけ実施します。
+したがって、ライブ用キーを登録しただけでは本番課金を開始できません。
+機能フラグを含む複数の明示設定と最終承認が必要です。
 
 ## 2. 権限と承認
 
@@ -95,6 +94,8 @@ DATABASE_URL
 DATABASE_SSL_MODE=require
 MEMBERSHIP_BILLING_ENABLED=false
 STRIPE_BILLING_ENABLED=false
+STRIPE_MODE=test
+STRIPE_LIVE_MODE_ENABLED=false
 STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ANSHIN
@@ -122,12 +123,13 @@ Stripe の公式資料でも test/live のキーとオブジェクトは分離�
 
 明示承認を得た後、単純にガードを削除するのではなく環境を明示します。
 
-1. `APP_ENV=production` など、デプロイ環境を一意に判定する値を導入する。
-2. production では `sk_live_` と `livemode=true` だけを許可する。
-3. non-production では `sk_test_` と `livemode=false` だけを許可する。
-4. キーとイベントの mode が不一致なら起動またはWebhook処理を停止する。
-5. 本番用 readiness check を別に用意し、値を一切表示しない。
-6. 本番用 Price / Portal / Webhook IDs が test IDs と混在しないことを検査する。
+1. `STRIPE_MODE` でStripe環境を一意に判定する。
+2. liveでは `sk_live_` / `rk_live_` と `livemode=true` だけを許可する。
+3. testでは `sk_test_` と `livemode=false` だけを許可する。
+4. liveでは `STRIPE_LIVE_MODE_ENABLED=true` の二重許可を必須にする。
+5. キーとイベントの mode が不一致なら起動またはWebhook処理を停止する。
+6. 本番用 readiness check を別に用意し、値を一切表示しない。
+7. 本番用 Price / Portal / Webhook IDs がtest IDsと混在しないことを検査する。
 
 ## 6. 移行手順
 

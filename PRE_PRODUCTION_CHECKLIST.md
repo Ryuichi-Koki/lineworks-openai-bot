@@ -10,7 +10,7 @@
   契約管理、退会予約、期間内権限維持、税理士相談、通知、返信を確認済み。
 - 常設リッチメニューを GPT-san に適用済み。
 - 退会予約中は「次回更新日」ではなく「有料機能の利用期限」を表示する。
-- `pnpm lint`、`pnpm typecheck`、67件の自動テスト、`pnpm build` は成功。
+- `pnpm lint`、`pnpm typecheck`、68件の自動テスト、`pnpm build` は成功。
 - Vercel直近30分のログは Error / Warning / Fatal が0件。
 - Git全52コミットに実Stripe/OpenAI/Webhookキーの一致はない。
 - Cloudflare 一時トンネル、ローカル Next.js、Stripe CLI は停止済み。

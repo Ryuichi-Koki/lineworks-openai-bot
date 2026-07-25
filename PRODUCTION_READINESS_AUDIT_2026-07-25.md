@@ -22,7 +22,7 @@
 - 税理士相談の受付、LINE WORKS通知、返信が正常に動作する。
 - Customer Portalで期間末解約でき、期間終了まで有料権限を維持する。
 - 退会予約中は「有料機能の利用期限」を表示する。
-- 67件の自動テスト、型検査、Lint、本番ビルドが成功する。
+- 68件の自動テスト、型検査、Lint、本番ビルドが成功する。
 - Vercelの必須環境変数はProduction限定・Sensitiveとして登録されている。
 - 管理画面認証変数は未登録であり、管理画面は401で無効化される。
 - Vercel直近30分のログは Error / Warning / Fatal が0件。
@@ -35,6 +35,8 @@
 
 - `.env.*` をGit除外対象にし、`.env.example` だけを追跡可能にした。
 - readiness検査へmigration 004を追加した。
+- `STRIPE_MODE` と `STRIPE_LIVE_MODE_ENABLED` の二重許可を追加し、
+  APIキー、Checkout、Portal、Invoice、Webhookのmode不一致を拒否する。
 - Customer Portal configuration IDはテストでは任意、ライブでは専用設定を
   必須候補として文書化した。
 - 現在のVercel・Supabase・Stripeテスト構成に合わせて運用文書を更新した。

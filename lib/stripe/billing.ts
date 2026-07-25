@@ -5,7 +5,11 @@ import {
   findStripeCustomerForLineUser,
 } from "../membership/store.ts";
 import { stripeClient } from "./client.ts";
-import { stripeAppBaseUrl, stripePriceForPlan } from "./config.ts";
+import {
+  assertStripeObjectMode,
+  stripeAppBaseUrl,
+  stripePriceForPlan,
+} from "./config.ts";
 
 function safeMetadata(input: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
@@ -65,6 +69,7 @@ export async function createSubscriptionCheckoutSession(input: {
   const session = await stripe.checkout.sessions.create(params, {
     idempotencyKey: `checkout:${input.idempotencyKey}`,
   });
+  assertStripeObjectMode(session.livemode);
   if (!session.url) throw new Error("Stripe Checkout Session returned no URL");
   return session.url;
 }
@@ -102,6 +107,7 @@ export async function createOneTimeCheckoutSession(input: {
   const session = await stripeClient().checkout.sessions.create(params, {
     idempotencyKey: `payment-checkout:${input.idempotencyKey}`,
   });
+  assertStripeObjectMode(session.livemode);
   if (!session.url) throw new Error("Stripe Checkout Session returned no URL");
   return session.url;
 }
@@ -143,9 +149,7 @@ export async function createCustomerPortalSession(
           },
   };
   const session = await stripeClient().billingPortal.sessions.create(params);
-  if (session.livemode) {
-    throw new Error("Live-mode Customer Portal sessions are disabled");
-  }
+  assertStripeObjectMode(session.livemode);
   return assertSafeStripePortalUrl(session.url);
 }
 
@@ -190,7 +194,7 @@ export async function createProfessionalServiceInvoice(input: {
     },
     { idempotencyKey: `invoice-item:${input.engagementId}` },
   );
-  return stripe.invoices.create(
+  const invoice = await stripe.invoices.create(
     {
       customer: input.customerId,
       collection_method: "send_invoice",
@@ -201,4 +205,6 @@ export async function createProfessionalServiceInvoice(input: {
     },
     { idempotencyKey: `invoice:${input.engagementId}` },
   );
+  assertStripeObjectMode(invoice.livemode);
+  return invoice;
 }

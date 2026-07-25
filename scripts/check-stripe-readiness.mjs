@@ -20,6 +20,7 @@ const fileEnv = {
   ...parseEnvFile(resolve(root, ".env.test.local")),
 };
 const env = { ...fileEnv, ...process.env };
+const stripeMode = (env.STRIPE_MODE ?? "test").toLowerCase();
 
 const checks = [
   {
@@ -29,8 +30,20 @@ const checks = [
   },
   {
     name: "STRIPE_SECRET_KEY",
-    ok: (env.STRIPE_SECRET_KEY ?? "").startsWith("sk_test_"),
+    ok:
+      stripeMode === "test" &&
+      (env.STRIPE_SECRET_KEY ?? "").startsWith("sk_test_"),
     requirement: "Stripe test-mode secret key",
+  },
+  {
+    name: "STRIPE_MODE",
+    ok: stripeMode === "test",
+    requirement: "test",
+  },
+  {
+    name: "STRIPE_LIVE_MODE_ENABLED",
+    ok: env.STRIPE_LIVE_MODE_ENABLED?.toLowerCase() !== "true",
+    requirement: "false or unset during sandbox verification",
   },
   {
     name: "STRIPE_WEBHOOK_SECRET",
