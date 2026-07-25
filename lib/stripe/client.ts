@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import nodeFetch from "node-fetch";
 import { assertSafeStripeSecret, requireStripeEnv } from "./config.ts";
 
 let stripe: Stripe | null = null;
@@ -12,7 +13,9 @@ export function stripeClient(): Stripe {
       name: "ApexBrain LINE tax consultation",
       version: "0.1.0",
     },
-    httpClient: Stripe.createFetchHttpClient(),
+    httpClient: Stripe.createFetchHttpClient(
+      nodeFetch as unknown as typeof globalThis.fetch,
+    ),
     maxNetworkRetries: 2,
   });
   return stripe;
