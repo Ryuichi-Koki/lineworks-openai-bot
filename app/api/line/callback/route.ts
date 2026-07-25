@@ -268,7 +268,15 @@ async function showMembershipMenu(
 ): Promise<void> {
   await pushLineMessage(userId, message, randomUUID(), {
     includeMembershipMenu: true,
-    includeLegalMenu: true,
+  });
+}
+
+async function sendMembershipStatus(
+  userId: string,
+  message: string,
+): Promise<void> {
+  await pushLineMessage(userId, message, randomUUID(), {
+    includePersistentMenuButton: false,
   });
 }
 
@@ -1013,7 +1021,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
                 billingState.status,
               );
-            await showMembershipMenu(
+            await sendMembershipStatus(
               accepted.event.userId,
               hasPaidSubscription
                 ? "現在は有料契約中です。無料会員への変更は「退会・契約管理」から期間末解約を行ってください。"
@@ -1053,9 +1061,9 @@ export async function POST(request: Request): Promise<NextResponse> {
               billingState?.provider === "stripe" &&
               ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
                 billingState.status,
-              );
+            );
             if (alreadyPaid) {
-              await showMembershipMenu(
+              await sendMembershipStatus(
                 accepted.event.userId,
                 "現在は有料契約中です。",
               );
@@ -1075,7 +1083,7 @@ export async function POST(request: Request): Promise<NextResponse> {
                 },
               );
             } else {
-              await showMembershipMenu(
+              await sendMembershipStatus(
                 accepted.event.userId,
                 `${TAX_AI_PRICING_MESSAGE}\n\n有料会員を選択しました。現在、決済受付は準備中です。`,
               );
