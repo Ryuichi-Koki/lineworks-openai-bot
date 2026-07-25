@@ -12,6 +12,7 @@ export function stripeClient(): Stripe {
       name: "ApexBrain LINE tax consultation",
       version: "0.1.0",
     },
+    httpClient: Stripe.createFetchHttpClient(),
     maxNetworkRetries: 2,
   });
   return stripe;
