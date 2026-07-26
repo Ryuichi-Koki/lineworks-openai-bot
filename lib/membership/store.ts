@@ -150,7 +150,7 @@ export async function recordPolicyAcceptance(input: {
       ${input.source ?? "line_postback"},
       ${input.idempotencyKey}
     )
-    on conflict (idempotency_key) do nothing
+    on conflict do nothing
   `;
 }
 
