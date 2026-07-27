@@ -66,6 +66,7 @@ import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
 import { redactSensitiveText } from "@/lib/security/redaction";
 import { isClarificationOnly } from "@/lib/tax/policy";
 import {
+  AI_ANSWER_PROCESSING_MESSAGE,
   buildCustomerReply,
   buildReviewRequestReceipt,
   buildTaxReviewIntakePrompt,
@@ -762,6 +763,16 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     return;
   }
 
+  const autoReply = hybridAutoReplyEnabled();
+  if (autoReply) {
+    await pushLineMessage(
+      event.userId,
+      AI_ANSWER_PROCESSING_MESSAGE,
+      randomUUID(),
+      { includePersistentMenuButton: false },
+    );
+  }
+
   let generatedDraft: Awaited<ReturnType<typeof generateReplyDraft>>;
   try {
     generatedDraft = await generateReplyDraft(
@@ -777,7 +788,6 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   if (clarification && reservation?.usageEventId) {
     await cancelUsage(reservation.usageEventId);
   }
-  const autoReply = hybridAutoReplyEnabled();
   let customerReply = buildCustomerReply(generatedDraft);
   if (reservation && !clarification) {
     const summary = await getUsageSummary(event.userId);

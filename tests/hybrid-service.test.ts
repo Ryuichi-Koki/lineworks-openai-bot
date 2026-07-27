@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReplyDraft } from "../lib/openai/generateReplyDraft.ts";
 import {
+  AI_ANSWER_PROCESSING_MESSAGE,
   buildCustomerReply,
   buildReviewRequestReceipt,
+  buildTaxReviewIntakePrompt,
   isMembershipCancellationInquiry,
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
@@ -107,10 +109,23 @@ test("AI自動回答であることを文頭に一度だけ明示する", () => 
   assert.equal(markAsAiAutoReply(marked), marked);
 });
 
+test("AI回答の生成前に待ち時間を案内する", () => {
+  assert.match(AI_ANSWER_PROCESSING_MESSAGE, /ご質問を受け付けました/);
+  assert.match(AI_ANSWER_PROCESSING_MESSAGE, /AIが回答を作成しています/);
+  assert.match(AI_ANSWER_PROCESSING_MESSAGE, /そのままお待ちください/);
+});
+
 test("個別相談の受付後は回答待ちを自動案内する", () => {
   const receipt = buildReviewRequestReceipt();
   assert.match(receipt, /税理士への個別相談を受け付けました/);
   assert.match(receipt, /回答まで、しばらくお待ちください/);
+});
+
+test("税理士相談の入力前に個人情報を送信しないよう注意する", () => {
+  const prompt = buildTaxReviewIntakePrompt();
+  assert.match(prompt, /氏名、住所、電話番号、メールアドレス/);
+  assert.match(prompt, /マイナンバー、口座・カード情報/);
+  assert.match(prompt, /個人を特定できる情報や機密情報は送信しないでください/);
 });
 
 test("回答本文に公式根拠を補い、個別判断には有料確認の導線を付ける", () => {
