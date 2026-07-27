@@ -31,6 +31,8 @@
 - Supabase Free Planのため管理バックアップがない。
 - 最新コードでの新規LINE利用者E2Eをまだ最終記録していない。
 - Stripeライブの事業確認、Tax、Portal、Webhook、限定決済が未実施。
+- Stripe Dashboard上で電話番号確認と法人情報確認（KYB）が未完了で、本番環境の作成操作が無効。
+- Stripe Taxの本社住所、デフォルト税コード、税務登録、取引税設定が未完了。
 
 ### 中
 
