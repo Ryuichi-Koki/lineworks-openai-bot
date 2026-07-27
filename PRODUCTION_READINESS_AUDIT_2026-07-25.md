@@ -1,59 +1,51 @@
-# 本番課金移行前監査
+# 本番準備監査
 
-監査日: 2026-07-25
+監査更新日: 2026-07-27
 
 対象: Tax Hot Line / ApexBrain税理士法人
 
-対象環境: Vercel Production `bot.abtax.jp`（Stripe・DBはテスト用）
+## 結論
 
-## 判定
+- LINE・LINE WORKS・会員管理・Stripeテスト運用: **Go**
+- Stripeライブ課金・全面本番公開: **No-Go**
 
-- テスト運用: **Go**
-- Stripeライブ課金: **No-Go**
-
-現在は、Vercel Production上でテスト用Stripeとテスト用Supabaseを利用する
-検証環境です。コードは `sk_test_` 以外の秘密鍵と `livemode=true` のWebhookを
-拒否するため、ライブ課金へ誤移行しない安全停止状態です。
+本番ドメイン上でテスト用Stripeを使う検証環境としては稼働しています。ライブキー、
+ライブWebhook、ライブPriceは未登録で、ライブ誤課金防止フラグもOFFです。
 
 ## 確認済み
 
 - 規約への明示同意後に無料・有料会員を選択できる。
-- StripeテストCheckout、Webhook、会員権反映が正常に動作する。
-- 税理士相談の受付、LINE WORKS通知、返信が正常に動作する。
-- Customer Portalで期間末解約でき、期間終了まで有料権限を維持する。
-- 退会予約中は「有料機能の利用期限」を表示する。
-- 68件の自動テスト、型検査、Lint、本番ビルドが成功する。
-- Vercelの必須環境変数はProduction限定・Sensitiveとして登録されている。
-- 管理画面認証変数は未登録であり、管理画面は401で無効化される。
-- Vercel直近30分のログは Error / Warning / Fatal が0件。
-- Git追跡中102ファイルと全52コミットに、実Stripe秘密鍵、
-  Webhook secret、OpenAI API keyの一致はない。
-- PostgreSQL接続文字列の履歴一致は、ランダムなローカル接続文字列を
-  実行時生成するスクリプトだけで、固定資格情報ではない。
+- 未登録者は登録導線へ進み、登録済み利用者は会員状態に応じて案内される。
+- 有料会員のCheckout、権限反映、税理士相談、退会予約をテストモードで確認した。
+- 税理士相談は受付後に確認ボタンを表示し、LINE WORKSへ通知・返信できる。
+- LINE WORKSの承認操作は許可済み担当者IDに限定した。
+- Supabase本番DBへmigration 001〜004を適用した。
+- 管理画面は認証変数未設定時に401となり、外部公開されない。
+- Stripeのtest/live混在を起動時と処理時に拒否する実装がある。
+- 秘密情報は `.env.*`、Vercel Sensitive、Git除外で管理している。
 
-## 今回の安全対策
+## 未了リスク
 
-- `.env.*` をGit除外対象にし、`.env.example` だけを追跡可能にした。
-- readiness検査へmigration 004を追加した。
-- `STRIPE_MODE` と `STRIPE_LIVE_MODE_ENABLED` の二重許可を追加し、
-  APIキー、Checkout、Portal、Invoice、Webhookのmode不一致を拒否する。
-- Customer Portal configuration IDはテストでは任意、ライブでは専用設定を
-  必須候補として文書化した。
-- 現在のVercel・Supabase・Stripeテスト構成に合わせて運用文書を更新した。
+### 高
 
-## ライブ課金までの必須残作業
+- Supabase Free Planのため管理バックアップがない。
+- 最新コードでの新規LINE利用者E2Eをまだ最終記録していない。
+- Stripeライブの事業確認、Tax、Portal、Webhook、限定決済が未実施。
 
-1. ライブ専用SupabaseプロジェクトまたはDB、最小権限ロール、
-   バックアップ、復旧試験を準備する。
-2. Stripe Live modeでProduct、月額3,300円のPrice、Tax、
-   Customer Portal専用設定、Webhookを作成して承認する。
-3. test/liveを明示する実行環境フラグを導入し、環境ごとにキーとWebhook modeの
-   一致を起動時に検証する。
-4. ライブSecretsをVercelへ登録する際は機能フラグをOFFのままにする。
-5. 管理画面を利用する場合は認証3変数を登録し、アクセス制限を追加する。
-6. 監視通知先、一次対応者、返金承認者、インシデント記録先を決める。
-7. 価格、税込表示、自動更新、返金、特商法・規約、Stripe Tax設定について
-   事業・税務・法務責任者の承認を記録する。
-8. 明示承認後、限定した社内テスト顧客でのみ実額決済を行う。
+### 中
 
-上記が完了するまではライブキーを登録せず、実顧客へCheckoutを案内しません。
+- 監視通知先と一次対応者が未記名。
+- 管理画面を有効化する場合の認証・IP制限方針が未確定。
+- Invoicingはコード部品があるが、担当者限定の正式運用が未承認。
+- 個人情報削除依頼、インシデント、返金の演習記録が未作成。
+
+## 次の承認ゲート
+
+1. DBバックアップ方式（パスワード再ローテーションまたはSupabase Pro）
+2. 監視通知先・一次対応者
+3. 管理画面の利用有無
+4. Stripeライブ設定の開始
+5. 税務・法務責任者による表示内容の承認
+6. 限定ライブ決済の金額・対象アカウント・実施日時
+
+上記完了まで、ライブキーと実顧客向けCheckoutは有効化しません。

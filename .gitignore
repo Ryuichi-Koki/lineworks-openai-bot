@@ -15,3 +15,6 @@ lineworks_private_key_base64.txt
 lineworks_private_key_vercel_value.txt
 _codex_backup_*/
 _codex_retired_*/
+.backups/
+
+.vercel
