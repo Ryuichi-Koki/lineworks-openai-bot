@@ -29,7 +29,7 @@
 ## 本番公開前の必須項目
 
 - [x] 最新版でLINE新規登録→同意→無料登録→受付通知→AI回答の実機E2E（2026-07-28確認）
-- [ ] Supabase本番DBの初回バックアップ取得とアーカイブ検証
+- [x] Supabase Proの日次バックアップを有効化し、初回Physicalバックアップを確認（2026-07-28）
 - [ ] 復旧先テストDBへのリストア演習
 - [ ] 監視通知先、一次対応者、法務・税務承認者を記名
 - [ ] 管理画面を使う場合の認証情報とアクセス制限を設定
@@ -42,13 +42,9 @@
 
 ## DBバックアップの現状
 
-Supabase Free Planには管理バックアップがありません。`scripts/backup-supabase-production.mjs`
-と `SUPABASE_BACKUP_RUNBOOK.md` を準備済みです。
-
-Vercelの `DATABASE_URL` はSensitive設定のため値を再取得できません。初回バックアップには次のどちらかが必要です。
-
-1. DBパスワードを再ローテーションし、Vercelへ同時反映して論理バックアップを取得する。
-2. Supabase Proへアップグレードして管理バックアップを有効化する。
+Supabase Proを有効化し、7日間保持の日次バックアップと初回Physicalバックアップを確認済みです。
+`scripts/backup-supabase-production.mjs` と `SUPABASE_BACKUP_RUNBOOK.md` は、
+月次の外部論理バックアップ用として維持します。
 
 ## ロールバック
 

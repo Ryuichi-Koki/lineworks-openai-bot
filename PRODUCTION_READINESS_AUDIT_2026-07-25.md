@@ -21,6 +21,7 @@
 - 税理士相談は受付後に確認ボタンを表示し、LINE WORKSへ通知・返信できる。
 - LINE WORKSの承認操作は許可済み担当者IDに限定した。
 - Supabase本番DBへmigration 001〜004を適用した。
+- Supabase Proを有効化し、7日間の日次バックアップと復元可能なPhysicalバックアップを確認した（2026-07-28）。
 - 管理画面は認証変数未設定時に401となり、外部公開されない。
 - Stripeのtest/live混在を起動時と処理時に拒否する実装がある。
 - 秘密情報は `.env.*`、Vercel Sensitive、Git除外で管理している。
@@ -29,7 +30,6 @@
 
 ### 高
 
-- Supabase Free Planのため管理バックアップがない。
 - Stripeライブの事業確認、Tax、Portal、Webhook、限定決済が未実施。
 - Stripe Dashboard上で電話番号確認と法人情報確認（KYB）が未完了で、本番環境の作成操作が無効。
 - Stripe Taxの本社住所、デフォルト税コード、税務登録、取引税設定が未完了。
