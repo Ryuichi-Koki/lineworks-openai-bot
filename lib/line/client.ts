@@ -194,7 +194,7 @@ export async function pushLineMessage(
       },
     });
   }
-  if (options.includePersistentMenuButton !== false) {
+  if (options.includePersistentMenuButton === true) {
     const lastMessage = messagePayloads.at(-1);
     if (lastMessage) {
       lastMessage.quickReply = {

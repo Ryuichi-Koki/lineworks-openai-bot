@@ -294,8 +294,15 @@ test("初回登録用メニューに有料会員と無料会員の両方を表�
     template.actions?.map((action) => action.label),
     ["有料会員になる", "無料会員で始める", "税理士へ相談", "退会・契約管理"],
   );
-  assert.equal(template.actions?.[0]?.type, "message");
-  assert.equal(template.actions?.[0]?.text, "料金を教えて");
+  assert.equal(template.actions?.[0]?.type, "postback");
+  assert.equal(
+    template.actions?.[0]?.data,
+    "action=select_paid_membership",
+  );
+  assert.equal(
+    template.actions?.[0]?.displayText,
+    "有料会員の登録手続きへ進みます",
+  );
   assert.equal(template.actions?.[1]?.type, "postback");
   assert.equal(
     template.actions?.[1]?.data,
@@ -308,7 +315,7 @@ test("初回登録用メニューに有料会員と無料会員の両方を表�
   assert.equal(template.actions?.[3]?.text, "退会したい");
 });
 
-test("通常返信からいつでも会員メニューを呼び出せる", async () => {
+test("常設リッチメニューと重複するクイック返信を通常回答に表示しない", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   let requestBody: unknown;
@@ -332,13 +339,40 @@ test("通常返信からいつでも会員メニューを呼び出せる", async
   const messages = (requestBody as Record<string, unknown>).messages as Array<
     Record<string, unknown>
   >;
+  assert.equal(messages.at(-1)?.quickReply, undefined);
+});
+
+test("必要な場合だけクイック返信の会員メニューを明示表示できる", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    await pushLineMessage("line-user", "通常回答", randomUUID(), {
+      includePersistentMenuButton: true,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
   const quickReply = messages.at(-1)?.quickReply as {
     items?: Array<{ action?: Record<string, unknown> }>;
   };
   assert.equal(quickReply.items?.[0]?.action?.label, "会員メニュー");
-  assert.equal(quickReply.items?.[0]?.action?.text, "メニュー");
   assert.equal(quickReply.items?.[1]?.action?.label, "規約・各種情報");
-  assert.equal(quickReply.items?.[1]?.action?.text, "規約");
 });
 
 test("LINEから規約4ページを確認し、チェック式で明示同意できる", async () => {
