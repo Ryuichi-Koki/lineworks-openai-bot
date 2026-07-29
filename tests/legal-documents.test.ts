@@ -39,7 +39,7 @@ test("利用規約に無料100件・都度課金・決済前確認・経過措�
   assert.match(text, /月額料金又は自動更新はありません/);
   assert.match(text, /確認ボタンを押しただけでは料金は発生しません/);
   assert.match(text, /従前の利用条件を適用/);
-  assert.match(text, /期間の満了をもって更新を停止/);
+  assert.match(text, /必要な同意・手続を経て確定/);
   assert.doesNotMatch(text, /月額利用料金は月額3,300円/);
 });
 
