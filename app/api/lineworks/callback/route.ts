@@ -17,6 +17,10 @@ import {
 } from "@/lib/approvals/store";
 import { pushLineMessage } from "@/lib/line/client";
 import {
+  markAsReviewedAiReply,
+  markAsTaxProfessionalReply,
+} from "@/lib/tax/hybridService";
+import {
   cancelUsage,
   consumeUsage,
   membershipBillingEnabled,
@@ -157,8 +161,10 @@ async function handleApproval(
   const claimed = await transitionApproval(approvalId, "pending", "sending", reviewerUserId);
   if (!claimed) return { status: "already_processed" };
 
+  // 送信本文と保存本文を一致させる（利用者が見たものがそのまま履歴・監査に残る）。
+  const sentReply = markAsReviewedAiReply(claimed.draftReply);
   try {
-    await pushLineMessage(claimed.lineUserId, claimed.draftReply, claimed.lineRetryKey);
+    await pushLineMessage(claimed.lineUserId, sentReply, claimed.lineRetryKey);
     if (membershipBillingEnabled() && claimed.usageEventId) {
       await consumeUsage(claimed.usageEventId);
     }
@@ -168,7 +174,7 @@ async function handleApproval(
         approvalId,
         eventType: "reply_sent",
         recordedAt: new Date().toISOString(),
-        answer: claimed.draftReply,
+        answer: sentReply,
         answerLevel: claimed.answerLevel,
         confidence: claimed.confidence,
         model: claimed.model,
@@ -184,7 +190,7 @@ async function handleApproval(
     try {
       await appendConversationMessage(claimed.lineUserId, {
         role: "assistant",
-        text: claimed.draftReply,
+        text: sentReply,
         createdAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -526,10 +532,12 @@ async function handleConsultationSend(
   );
   if (!claimed?.replyText) return { status: "already_processed" };
 
+  // 税理士相談への回答であることを明示する。AI回答との混同を防ぐ。
+  const sentReply = markAsTaxProfessionalReply(claimed.replyText);
   try {
     await pushLineMessage(
       claimed.lineUserId,
-      claimed.replyText,
+      sentReply,
       claimed.lineRetryKey,
     );
     await transitionConsultation(
@@ -540,14 +548,14 @@ async function handleConsultationSend(
     );
     await appendConversationMessage(claimed.lineUserId, {
       role: "assistant",
-      text: claimed.replyText,
+      text: sentReply,
       createdAt: new Date().toISOString(),
     });
     await appendAuditRecord({
       approvalId: claimed.id,
       eventType: "reply_sent",
       recordedAt: new Date().toISOString(),
-      answer: claimed.replyText,
+      answer: sentReply,
       reviewerUserId: event.reviewerUserId,
     });
     await deleteConsultationReplySession(

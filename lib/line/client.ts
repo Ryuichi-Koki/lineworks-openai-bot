@@ -2,6 +2,7 @@ import { maskLineOutput } from "../security/redaction.ts";
 import {
   LEGAL_DOCUMENTS,
   legalDocumentUrl,
+  legalIndexUrl,
 } from "../legal/config.ts";
 import { lineApiBaseUrl } from "./config.ts";
 
@@ -19,6 +20,7 @@ export async function pushLineMessage(
   retryKey: string,
   options: {
     includeTaxReviewButton?: boolean;
+    includeMembershipApplyButton?: boolean;
     includeMembershipJoinButton?: boolean;
     membershipJoinUrl?: string;
     includeMembershipManagementButton?: boolean;
@@ -31,11 +33,9 @@ export async function pushLineMessage(
     includePersistentMenuButton?: boolean;
   } = {},
 ): Promise<void> {
-  const messages = splitLineMessages(maskLineOutput(text));
-  const messagePayloads: Array<Record<string, unknown>> = messages.map((messageText) => ({
-    type: "text",
-    text: messageText,
-  }));
+  // ボタン類を先に組み立て、本文には1回のpushの残り枠（最大5通）をすべて使う。
+  // 先に本文を3通で固定すると、根拠や注意書きが末尾から静かに落ちる。
+  const messagePayloads: Array<Record<string, unknown>> = [];
   if (options.includeTaxReviewButton) {
     messagePayloads.push({
       type: "template",
@@ -54,20 +54,40 @@ export async function pushLineMessage(
       },
     });
   }
+  // 申し込みの意思表示ボタン。押した時点では決済ページを作らないため、
+  // 料金の確認と申し込みを分離できる。
+  if (options.includeMembershipApplyButton) {
+    messagePayloads.push({
+      type: "template",
+      altText: "あんしん会員に申し込む",
+      template: {
+        type: "buttons",
+        text: "あんしん会員では、AI回答100回と税理士相談1件をご利用いただけます。押しても決済は発生しません。",
+        actions: [
+          {
+            type: "postback",
+            label: "あんしん会員に申し込む",
+            data: "action=select_paid_membership",
+            displayText: "あんしん会員の申し込みへ進みます",
+          },
+        ],
+      },
+    });
+  }
   const joinUrl =
     options.membershipJoinUrl?.trim() ||
     process.env.LINE_MEMBERSHIP_JOIN_URL?.trim();
   if (options.includeMembershipJoinButton && joinUrl) {
     messagePayloads.push({
       type: "template",
-      altText: "あんしん会員に登録する",
+      altText: "決済画面へ進む",
       template: {
         type: "buttons",
-        text: "あんしん会員では、AI回答100回と税理士確認1件をご利用いただけます。",
+        text: "Stripeの安全な決済画面でお手続きください。完了後、このトークに完了メッセージが届きます。",
         actions: [
           {
             type: "uri",
-            label: "あんしん会員に登録する",
+            label: "決済画面へ進む",
             uri: joinUrl,
           },
         ],
@@ -96,6 +116,8 @@ export async function pushLineMessage(
     messagePayloads.push({
       type: "template",
       altText: "会員メニュー",
+      // 税理士相談・契約管理・規約はリッチメニューに常時表示されるため、
+      // このカードは登録と状態確認に絞る（同じ項目を二重に出さない）。
       template: {
         type: "buttons",
         title: "会員メニュー",
@@ -103,9 +125,9 @@ export async function pushLineMessage(
         actions: [
           {
             type: "postback",
-            label: "有料会員になる",
-            data: "action=select_paid_membership",
-            displayText: "有料会員の登録手続きへ進みます",
+            label: "料金・プランを見る",
+            data: "action=show_pricing",
+            displayText: "料金プランを見ます",
           },
           {
             type: "postback",
@@ -115,14 +137,9 @@ export async function pushLineMessage(
           },
           {
             type: "postback",
-            label: "税理士へ相談",
-            data: "action=start_tax_review_intake",
-            displayText: "税理士へ相談",
-          },
-          {
-            type: "message",
-            label: "退会・契約管理",
-            text: "退会したい",
+            label: "マイページ",
+            data: "action=show_status",
+            displayText: "現在の会員状態を確認します",
           },
         ],
       },
@@ -151,17 +168,24 @@ export async function pushLineMessage(
         "legalPolicyVersion is required when legal consent buttons are included",
       );
     }
+    // 「☐」は未チェックの記号に見え、「押す＝チェックを入れるだけ」と
+    // 誤解される余地がある。押した時点で同意が記録されることを文言で明示する。
     messagePayloads.push({
       type: "template",
       altText: "規約等への確認と同意",
       template: {
         type: "buttons",
         title: "規約等への確認・同意",
-        text: "各規程と外国へのデータ移転に関する説明を確認し、同意する場合は下のチェックボタンを押してください。",
+        text: "下のボタンを押すと、利用規約とプライバシーポリシー（外国にある第三者への提供を含みます。）に同意した記録を保存します。",
         actions: [
           {
+            type: "uri",
+            label: "規約を読む",
+            uri: legalIndexUrl(),
+          },
+          {
             type: "postback",
-            label: "☐ 規約等に同意する",
+            label: "上記に同意して進む",
             data: `action=accept_policies&version=${encodeURIComponent(version)}`,
             displayText: "規約等に同意します",
           },
@@ -194,6 +218,14 @@ export async function pushLineMessage(
       },
     });
   }
+  const templatePayloads = messagePayloads.splice(0, messagePayloads.length);
+  const textPayloads = splitLineMessages(
+    maskLineOutput(text),
+    LINE_TEXT_MAX_LENGTH,
+    Math.max(LINE_MAX_MESSAGES_PER_PUSH - templatePayloads.length, 1),
+  ).map((messageText) => ({ type: "text", text: messageText }));
+  messagePayloads.push(...textPayloads, ...templatePayloads);
+
   if (options.includePersistentMenuButton === true) {
     const lastMessage = messagePayloads.at(-1);
     if (lastMessage) {
@@ -257,12 +289,12 @@ export async function pushLineLegalConsentPrompt(
   policyVersion: string,
   retryKey: string,
 ): Promise<void> {
+  // 規約4文書へは一覧ページ1リンクで誘導し、吹き出しを3通から2通に減らす。
   await pushLineMessage(
     userId,
-    "登録前に各規程をご確認ください。ボタンを押すと、サービス利用規約、プライバシーポリシー（外国にある第三者への提供を含みます。）に同意した記録を保存します。",
+    "Tax Hot Lineへようこそ。\nご利用開始の前に、利用規約とプライバシーポリシーをご確認ください。",
     retryKey,
     {
-      includeLegalMenu: true,
       includeLegalConsentButtons: true,
       legalPolicyVersion: policyVersion,
     },
@@ -286,8 +318,23 @@ export async function pushLineReviewConfirmation(
   summary: string,
   reviewRequestId: string,
   retryKey: string,
+  options: { taxReviewRemaining: number },
 ): Promise<void> {
-  const safeSummary = maskLineOutput(summary).slice(0, 1500);
+  // 依頼内容は全文をテキストで再掲する。ボタンテンプレートのtextは160字までのため、
+  // ここに相談内容を入れると利用者は自分が送った内容を確認できないまま枠を消費してしまう。
+  const safeSummary = maskLineOutput(summary);
+  const remaining = Math.max(options.taxReviewRemaining, 0);
+  const afterSubmit = Math.max(remaining - 1, 0);
+  const bodyMessages = splitLineMessages(
+    [
+      "以下の内容で税理士へ依頼します。内容をご確認ください。",
+      "",
+      "──────────",
+      safeSummary,
+      "──────────",
+    ].join("\n"),
+  ).map((messageText) => ({ type: "text", text: messageText }));
+
   const response = await fetch(`${lineApiBaseUrl()}/message/push`, {
     method: "POST",
     headers: {
@@ -298,12 +345,18 @@ export async function pushLineReviewConfirmation(
     body: JSON.stringify({
       to: userId,
       messages: [
+        ...bodyMessages,
         {
           type: "template",
-          altText: "税理士確認の依頼内容をご確認ください",
+          altText: "税理士相談の依頼内容をご確認ください",
           template: {
             type: "buttons",
-            text: `次の内容で税理士へ確認します。\n\n${safeSummary}`.slice(0, 160),
+            text: [
+              "この内容で依頼しますか？",
+              `確定すると税理士相談の枠を1件消費します（残り${remaining}件→${afterSubmit}件）。`,
+            ]
+              .join("\n")
+              .slice(0, 160),
             actions: [
               {
                 type: "postback",
@@ -313,9 +366,15 @@ export async function pushLineReviewConfirmation(
               },
               {
                 type: "postback",
-                label: "キャンセル",
+                label: "入力し直す",
+                data: `action=restart_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
+                displayText: "相談内容を入力し直します",
+              },
+              {
+                type: "postback",
+                label: "やめる",
                 data: `action=cancel_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
-                displayText: "税理士確認をキャンセル",
+                displayText: "税理士相談をキャンセル",
               },
             ],
           },
@@ -340,7 +399,19 @@ export async function pushLineReviewConfirmation(
   }
 }
 
-export function splitLineMessages(text: string, maxLength = 4500): string[] {
+/** LINEのテキストメッセージ上限（5,000字）に対する安全側の値。 */
+export const LINE_TEXT_MAX_LENGTH = 4500;
+/** LINEの1リクエストあたりのメッセージ数上限。 */
+export const LINE_MAX_MESSAGES_PER_PUSH = 5;
+
+const TRUNCATION_NOTICE =
+  "\n\n※回答が長いため、ここまでを表示しています。続きが必要な場合は、お手数ですが内容を分けてもう一度ご質問ください。";
+
+export function splitLineMessages(
+  text: string,
+  maxLength = LINE_TEXT_MAX_LENGTH,
+  maxMessages = 3,
+): string[] {
   const trimmed = text.trim();
   if (trimmed.length <= maxLength) return [trimmed];
   const sections = trimmed.split(/(?=【[^】]+】)/g).filter(Boolean);
@@ -367,8 +438,12 @@ export function splitLineMessages(text: string, maxLength = 4500): string[] {
     }
     return parts;
   });
-  if (bounded.length <= 3) return bounded;
-  const firstTwo = bounded.slice(0, 2);
-  const remainder = bounded.slice(2).join("\n").slice(0, maxLength - 1);
-  return [...firstTwo, `${remainder}…`];
+  if (bounded.length <= maxMessages) return bounded;
+  // 枠に収まらない場合でも、末尾が黙って消えたように見えないよう理由を書く。
+  const kept = bounded.slice(0, maxMessages - 1);
+  const remainder = bounded
+    .slice(maxMessages - 1)
+    .join("\n")
+    .slice(0, maxLength - TRUNCATION_NOTICE.length);
+  return [...kept, `${remainder}${TRUNCATION_NOTICE}`];
 }

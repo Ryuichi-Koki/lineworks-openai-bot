@@ -10,7 +10,10 @@ import {
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   markAsAiAutoReply,
+  markAsReviewedAiReply,
+  markAsTaxProfessionalReply,
   shouldAutoReply,
+  TAX_AI_CHECKOUT_INTRO_MESSAGE,
   TAX_AI_PRICING_MESSAGE,
 } from "../lib/tax/hybridService.ts";
 
@@ -63,7 +66,53 @@ test("料金の質問には固定された料金表を返す", () => {
   assert.equal(isPricingInquiry("この取引の税金はいくらですか？"), false);
   assert.match(TAX_AI_PRICING_MESSAGE, /無料会員：月額0円/);
   assert.match(TAX_AI_PRICING_MESSAGE, /あんしん会員：月額3,300円/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /税理士確認1案件/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /税理士相談1件／1契約期間/);
+});
+
+test("税理士相談への回答は回答主体を明示し、AI回答と区別できる", () => {
+  const marked = markAsTaxProfessionalReply("結論として損金算入できます。");
+
+  assert.match(marked, /Apex Brain税理士法人からの回答/);
+  assert.match(marked, /当法人の社員税理士又は所属税理士が確認しています。/);
+  assert.match(marked, /結論として損金算入できます。/);
+  // AI回答の目印は付かない（両者が混ざらないこと）
+  assert.doesNotMatch(marked, /※AIによる自動回答です/);
+  // 二重付与しない
+  assert.equal(markAsTaxProfessionalReply(marked), marked);
+});
+
+test("承認モードのAI下書きにも作成主体を明示する", () => {
+  const marked = markAsReviewedAiReply("一般的には対象になります。");
+
+  assert.match(marked, /^※AIが作成し、当法人の担当者が確認のうえ送信した回答です/);
+  assert.match(marked, /一般的には対象になります。/);
+  assert.equal(markAsReviewedAiReply(marked), marked);
+
+  // 自動回答の目印が付いていた場合は置き換える（二重表示を避ける）
+  const fromAutoReply = markAsReviewedAiReply(
+    markAsAiAutoReply("一般的には対象になります。"),
+  );
+  assert.match(fromAutoReply, /^※AIが作成し、当法人の担当者が確認のうえ送信した回答です/);
+  assert.doesNotMatch(fromAutoReply, /※AIによる自動回答です/);
+});
+
+test("AI回答と税理士回答の目印が互いに衝突しない", () => {
+  const ai = markAsAiAutoReply("回答本文");
+  const professional = markAsTaxProfessionalReply("回答本文");
+  assert.notEqual(ai, professional);
+  assert.doesNotMatch(ai, /Apex Brain税理士法人からの回答/);
+});
+
+test("料金案内は決済が発生しないことを明示する", () => {
+  assert.match(TAX_AI_PRICING_MESSAGE, /※このメッセージでは決済は発生しません。/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /次回更新日にリセットされます/);
+});
+
+test("決済前の案内は金額・自動更新・完了通知・二重申込防止を伝える", () => {
+  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /月額3,300円（税込）／自動更新/);
+  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /カード情報は当法人では保持しません/);
+  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /完了メッセージが届きます/);
+  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /もう一度お申し込みボタンを押さないでください/);
 });
 
 test("税理士個別相談ボタンのpostbackだけを受付対象にする", () => {
@@ -84,6 +133,70 @@ test("会員契約の退会・解約依頼だけを契約管理導線として�
     isMembershipCancellationInquiry("解約した取引の違約金は課税されますか"),
     false,
   );
+});
+
+test("契約・解約・料金を含む税務質問を会員導線へ誤って流さない", () => {
+  // いずれも税務相談であり、Stripeの契約管理や料金案内を返してはならない
+  const taxQuestions = [
+    "契約の中途解約違約金の損金算入時期を教えてください",
+    "顧問契約を解約した場合の消費税の取扱いを教えてください",
+    "税理士報酬の料金は経費になりますか",
+    "サブスクリプションの利用料金は全額損金算入できますか",
+    "リース契約を中途解約したときの会計処理と税務処理を教えてください",
+    "解約手数料に消費税は課税されますか",
+  ];
+  for (const question of taxQuestions) {
+    assert.equal(
+      isMembershipCancellationInquiry(question),
+      false,
+      `退会導線へ誤誘導: ${question}`,
+    );
+    assert.equal(
+      isPricingInquiry(question),
+      false,
+      `料金案内へ誤誘導: ${question}`,
+    );
+  }
+});
+
+test("会員手続きの問い合わせは従来どおり検出する", () => {
+  const cancellations = [
+    "退会したい",
+    "解約手続き",
+    "あんしん会員を解約したいです",
+    "有料会員をやめたいので退会したい",
+    "サブスクを停止したい",
+  ];
+  for (const message of cancellations) {
+    assert.equal(
+      isMembershipCancellationInquiry(message),
+      true,
+      `退会導線を検出できない: ${message}`,
+    );
+  }
+
+  const pricing = [
+    "料金を教えて",
+    "AI使い放題はいくらですか？",
+    "あんしん会員の月額はいくら",
+    "プラン",
+    "サービスの料金プランを知りたい",
+  ];
+  for (const message of pricing) {
+    assert.equal(
+      isPricingInquiry(message),
+      true,
+      `料金案内を検出できない: ${message}`,
+    );
+  }
+});
+
+test("長文は会員手続きではなく税務相談として扱う", () => {
+  const longMessage =
+    "会員の件でお尋ねしたいのですが、そもそも当社の状況を前提にすると、" +
+    "どのような対応が適切なのか判断がつかず、まずは全体像から相談したいと考えています。解約";
+  assert.ok(longMessage.length > 60);
+  assert.equal(isMembershipCancellationInquiry(longMessage), false);
 });
 
 test("検証済みの一般回答は自動回答可能と判定する", () => {
@@ -139,7 +252,7 @@ test("回答本文に公式根拠を補い、個別判断には有料確認の�
       requiresTaxProfessionalReview: true,
     }),
   );
-  assert.match(review, /【税理士確認のご案内】/);
+  assert.match(review, /【税理士相談のご案内】/);
   assert.match(review, /回答下のボタン/);
   assert.doesNotMatch(review, /税理士確認を依頼/);
   assert.match(review, /月額3,300円/);

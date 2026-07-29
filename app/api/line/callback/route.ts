@@ -32,6 +32,7 @@ import {
   appendUsageSummary,
   buildLimitMessage,
   buildPaidPeriodLine,
+  buildStatusMessage,
 } from "@/lib/membership/messages";
 import {
   beginWebhookEvent,
@@ -52,8 +53,10 @@ import {
   recordPolicyAcceptance,
   registerMembershipUser,
   reserveUsage,
+  savePendingQuestion,
   submitReviewRequest,
   startTaxReviewIntake,
+  takePendingQuestion,
   syncMembership,
   takeTaxReviewIntake,
   updateMembershipDisplayName,
@@ -74,7 +77,10 @@ import {
   isPricingInquiry,
   isTaxProfessionalReviewPostback,
   markAsAiAutoReply,
+  TAX_AI_CHECKOUT_INTRO_MESSAGE,
+  TAX_AI_CHECKOUT_REUSED_MESSAGE,
   TAX_AI_PRICING_MESSAGE,
+  TAX_AI_QUESTION_GUIDE_MESSAGE,
 } from "@/lib/tax/hybridService";
 import {
   createCustomerPortalSession,
@@ -108,6 +114,26 @@ type AcceptedLineEvent =
       event: { eventId: string; userId: string };
     }
   | {
+      kind: "pricing";
+      event: { eventId: string; userId: string };
+    }
+  | {
+      kind: "status";
+      event: { eventId: string; userId: string };
+    }
+  | {
+      kind: "billing_portal";
+      event: { eventId: string; userId: string };
+    }
+  | {
+      kind: "legal_menu";
+      event: { eventId: string; userId: string };
+    }
+  | {
+      kind: "question_help";
+      event: { eventId: string; userId: string };
+    }
+  | {
       kind: "legal_acceptance";
       event: {
         eventId: string;
@@ -120,7 +146,7 @@ type AcceptedLineEvent =
       event: {
         eventId: string;
         userId: string;
-        action: "start" | "intake" | "submit" | "cancel";
+        action: "start" | "intake" | "submit" | "cancel" | "restart";
         reviewRequestId?: string;
       };
     }
@@ -226,6 +252,32 @@ function getPaidMembershipPostbackEvent(
   };
 }
 
+/** 追加パラメータを持たないpostbackを共通に取り出す。 */
+function getSimplePostbackEvent(
+  event: LineEvent,
+  action: string,
+): { eventId: string; userId: string } | null {
+  const postbackData =
+    typeof event.postback?.data === "string"
+      ? new URLSearchParams(event.postback.data)
+      : null;
+  if (
+    event.type !== "postback" ||
+    postbackData?.get("action") !== action ||
+    event.source?.type !== "user" ||
+    typeof event.source.userId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    eventId:
+      typeof event.webhookEventId === "string"
+        ? event.webhookEventId
+        : `${event.source.userId}:${action}`,
+    userId: event.source.userId,
+  };
+}
+
 function getLegalAcceptancePostbackEvent(
   event: LineEvent,
 ): {
@@ -299,12 +351,112 @@ async function showMembershipSelectionPrompt(userId: string): Promise<void> {
   await pushLineMembershipSelectionPrompt(userId, randomUUID());
 }
 
+async function hasActivePaidSubscription(userId: string): Promise<boolean> {
+  if (!stripeBillingEnabled()) return false;
+  const billingState = await getMembershipBillingState(userId);
+  return Boolean(
+    billingState?.provider === "stripe" &&
+      ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
+        billingState.status,
+      ),
+  );
+}
+
+/**
+ * 契約管理画面への導線。
+ * intent が "cancel" のときだけStripeの解約フローを直接開く。
+ * リッチメニューの「契約管理」から解約フローに落とさないための区別。
+ */
+async function showBillingManagement(
+  userId: string,
+  intent: "cancel" | "manage",
+): Promise<string> {
+  const billingState =
+    membershipBillingEnabled() && stripeBillingEnabled()
+      ? await getMembershipBillingState(userId)
+      : null;
+  const stripeMembership =
+    billingState?.provider === "stripe" &&
+    ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
+      billingState.status,
+    );
+  if (!stripeMembership) {
+    const message =
+      intent === "cancel"
+        ? "有効なStripe契約はないため、有料会員の解約手続は不要です。無料会員の利用終了又は個人データの削除・利用停止を希望する場合は、info@abtax.jp又は当法人ウェブサイトのお問い合わせフォームからご連絡ください。LINEメンバーシップで加入している場合は、LINE内の会員設定から退会状況をご確認ください。"
+        : "現在、有料契約はありません。無料会員としてご利用中です。\nあんしん会員のお申し込みは「料金プラン」からご確認いただけます。";
+    await pushLineMessage(userId, message, randomUUID());
+    return message;
+  }
+
+  const cancellationScheduled = billingState.status === "cancel_at_period_end";
+  const portalUrl = await createCustomerPortalSession(userId, {
+    cancellationFlow: intent === "cancel" && !cancellationScheduled,
+  });
+  const message = cancellationScheduled
+    ? "退会予約済みです。現在の契約期間が終了するまでは、あんしん会員の機能をご利用いただけます。下のボタンから契約状況の確認や退会予約の取り消しができます。"
+    : intent === "cancel"
+      ? "退会はStripeの安全な契約管理画面で手続きできます。退会を確定すると次回更新が停止され、現在の契約期間が終了するまでは、あんしん会員の機能をご利用いただけます。"
+      : "Stripeの安全な契約管理画面で、支払方法の確認・変更、請求履歴の確認、退会手続きができます。";
+  await pushLineMessage(userId, message, randomUUID(), {
+    includeMembershipManagementButton: true,
+    membershipManagementUrl: portalUrl,
+  });
+  return message;
+}
+
+/**
+ * 失敗を利用者に伝える。通知自体の失敗で元の例外を隠さないよう、
+ * ここでの例外は握り潰してログに残す。
+ */
+async function notifyUserOfFailure(
+  userId: string,
+  message: string,
+): Promise<void> {
+  try {
+    await pushLineMessage(userId, message, randomUUID());
+  } catch (error) {
+    console.error("Failed to notify the user of an error", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/** 会員状態の照会。AI回答の回数を消費しない。 */
+async function showMembershipStatusSummary(userId: string): Promise<void> {
+  if (!membershipBillingEnabled()) {
+    await pushLineMessage(
+      userId,
+      "現在、会員状態の照会はご利用いただけません。",
+      randomUUID(),
+    );
+    return;
+  }
+  await ensureMembershipUser(userId);
+  const summary = await getUsageSummary(userId);
+  await pushLineMessage(userId, buildStatusMessage(summary), randomUUID(), {
+    includeMembershipApplyButton: summary.planCode === "free",
+  });
+}
+
+/**
+ * 料金の確認のみを行う。ここではStripe Checkout Sessionを作成しない。
+ * 決済ページは「あんしん会員に申し込む」を押した後（select_paid_membership）に初めて作成する。
+ */
+async function showPricingInfo(userId: string): Promise<void> {
+  const alreadyPaid = await hasActivePaidSubscription(userId);
+  await pushLineMessage(userId, TAX_AI_PRICING_MESSAGE, randomUUID(), {
+    includeMembershipApplyButton: !alreadyPaid,
+  });
+}
+
 function getReviewPostbackEvent(
   event: LineEvent,
 ): {
   eventId: string;
   userId: string;
-  action: "start" | "intake" | "submit" | "cancel";
+  action: "start" | "intake" | "submit" | "cancel" | "restart";
   reviewRequestId?: string;
 } | null {
   if (
@@ -326,11 +478,13 @@ function getReviewPostbackEvent(
         ? "submit"
         : rawAction === "cancel_tax_review"
           ? "cancel"
-          : null;
+          : rawAction === "restart_tax_review"
+            ? "restart"
+            : null;
   if (!action) return null;
   const reviewRequestId = params.get("id") ?? undefined;
   if (
-    (action === "submit" || action === "cancel") &&
+    (action === "submit" || action === "cancel" || action === "restart") &&
     !reviewRequestId
   ) {
     return null;
@@ -445,10 +599,10 @@ async function startTaxProfessionalReview(event: {
   if (summary.taxReviewRemaining < 1) {
     const message =
       summary.planCode === "free"
-        ? "税理士確認は、あんしん会員でご利用いただけます。"
-        : `今期の税理士確認枠を使い切りました。\n${buildPaidPeriodLine(summary.membershipStatus, summary.periodEnd)}`;
+        ? "税理士相談は、あんしん会員でご利用いただけます。"
+        : `今期の税理士相談枠を使い切りました。\n${buildPaidPeriodLine(summary.membershipStatus, summary.periodEnd)}`;
     await pushLineMessage(event.userId, message, randomUUID(), {
-      includeMembershipJoinButton: summary.planCode === "free",
+      includeMembershipApplyButton: summary.planCode === "free",
     });
     return;
   }
@@ -471,6 +625,7 @@ async function startTaxProfessionalReview(event: {
     safeQuestionSummary,
     reviewRequestId,
     randomUUID(),
+    { taxReviewRemaining: summary.taxReviewRemaining },
   );
 }
 
@@ -484,7 +639,7 @@ async function startTaxProfessionalReviewIntake(event: {
         ? "税理士への個別相談は、あんしん会員でご利用いただけます。"
         : `今期の税理士相談枠を使い切りました。\n${buildPaidPeriodLine(summary.membershipStatus, summary.periodEnd)}`;
     await pushLineMessage(event.userId, message, randomUUID(), {
-      includeMembershipJoinButton: summary.planCode === "free",
+      includeMembershipApplyButton: summary.planCode === "free",
     });
     return;
   }
@@ -500,16 +655,20 @@ async function confirmTaxReviewIntake(
   event: { eventId: string; userId: string; text: string },
 ): Promise<void> {
   const safeCustomerText = redactSensitiveText(event.text).slice(0, 1200);
-  const reviewRequestId = await createReviewDraft({
-    lineUserId: event.userId,
-    conversationId: event.eventId,
-    summary: safeCustomerText,
-  });
+  const [reviewRequestId, summary] = await Promise.all([
+    createReviewDraft({
+      lineUserId: event.userId,
+      conversationId: event.eventId,
+      summary: safeCustomerText,
+    }),
+    getUsageSummary(event.userId),
+  ]);
   await pushLineReviewConfirmation(
     event.userId,
     safeCustomerText,
     reviewRequestId,
     randomUUID(),
+    { taxReviewRemaining: summary.taxReviewRemaining },
   );
   await appendConversationMessage(event.userId, {
     role: "customer",
@@ -531,7 +690,7 @@ async function submitTaxProfessionalReview(event: {
   if (!reservation.allowed || !reservation.usageEventId) {
     await pushLineMessage(
       event.userId,
-      `今期の税理士確認枠を使い切りました。\n${buildPaidPeriodLine(reservation.membershipStatus, reservation.periodEnd)}`,
+      `今期の税理士相談枠を使い切りました。\n${buildPaidPeriodLine(reservation.membershipStatus, reservation.periodEnd)}`,
       randomUUID(),
     );
     return;
@@ -541,7 +700,7 @@ async function submitTaxProfessionalReview(event: {
     await notifyTaxProfessionalReview(
       event,
       history,
-      "税理士確認依頼（内容確認済み）",
+      "税理士相談依頼（内容確認済み）",
     );
     await completeReviewRequest(
       event.userId,
@@ -554,7 +713,63 @@ async function submitTaxProfessionalReview(event: {
       event.reviewRequestId,
       reservation.usageEventId,
     );
+    await notifyUserOfFailure(
+      event.userId,
+      [
+        "申し訳ありません。税理士相談の受付処理に失敗しました。",
+        "相談枠は消費していません。",
+        "",
+        "お手数ですが、もう一度［税理士に相談］からお試しください。",
+      ].join("\n"),
+    );
     throw error;
+  }
+}
+
+/**
+ * 登録前に届いた質問を預かる。従来はここで質問を捨てていたため、
+ * 利用者は同意・会員選択を終えたあとに同じ質問を打ち直す必要があった。
+ */
+async function holdQuestionForRegistration(
+  userId: string,
+  question: string,
+): Promise<void> {
+  try {
+    await savePendingQuestion(userId, question);
+    await pushLineMessage(
+      userId,
+      "ご質問をお預かりしました。\nご登録が完了しましたら、そのまま回答をお送りします。",
+      randomUUID(),
+      { includePersistentMenuButton: false },
+    );
+  } catch (error) {
+    // 預かりに失敗しても登録導線自体は続行する。
+    console.error("Failed to hold a question for registration", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/** 会員登録が済んだ時点で、預かっていた質問をそのまま回答フローへ流す。 */
+async function releasePendingQuestion(event: {
+  eventId: string;
+  userId: string;
+}): Promise<void> {
+  if (!membershipBillingEnabled()) return;
+  try {
+    const question = await takePendingQuestion(event.userId);
+    if (!question) return;
+    await processTextEvent({
+      eventId: `${event.eventId}:pending`,
+      userId: event.userId,
+      text: question,
+    });
+  } catch (error) {
+    console.error("Failed to answer a held question after registration", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 }
 
@@ -574,10 +789,12 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
       currentPolicyVersion(),
     );
     if (!acceptedCurrentPolicies) {
+      await holdQuestionForRegistration(event.userId, safeCustomerText);
       await showLegalConsentPrompt(event.userId);
       return;
     }
     if (!(await getMembershipBillingState(event.userId))) {
+      await holdQuestionForRegistration(event.userId, safeCustomerText);
       await showMembershipSelectionPrompt(event.userId);
       return;
     }
@@ -635,51 +852,30 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     return;
   }
 
-  if (billingActive && (await takeTaxReviewIntake(event.userId))) {
-    await confirmTaxReviewIntake(event);
-    return;
+  if (billingActive) {
+    const intake = await takeTaxReviewIntake(event.userId);
+    if (intake === "active") {
+      await confirmTaxReviewIntake(event);
+      return;
+    }
+    if (intake === "expired") {
+      // 受付時間を過ぎた相談文をAI質問として処理すると、意図せず回数を消費する。
+      await pushLineMessage(
+        event.userId,
+        [
+          "税理士相談の受付時間（30分）を過ぎたため、いただいた内容は受け付けていません。",
+          "AI回答の回数は消費していません。",
+          "",
+          "お手数ですが、もう一度［税理士に相談］からお願いします。",
+        ].join("\n"),
+        randomUUID(),
+      );
+      return;
+    }
   }
 
   if (isMembershipCancellationInquiry(event.text)) {
-    const billingState =
-      membershipBillingEnabled() && stripeBillingEnabled()
-        ? await getMembershipBillingState(event.userId)
-        : null;
-    const stripeMembership =
-      billingState?.provider === "stripe" &&
-      ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
-        billingState.status,
-      );
-    if (!stripeMembership) {
-      const message =
-        "有効なStripe契約はないため、有料会員の解約手続は不要です。無料会員の利用終了又は個人データの削除・利用停止を希望する場合は、info@abtax.jp又は当法人ウェブサイトのお問い合わせフォームからご連絡ください。LINEメンバーシップで加入している場合は、LINE内の会員設定から退会状況をご確認ください。";
-      await pushLineMessage(event.userId, message, randomUUID());
-      await Promise.all([
-        appendConversationMessage(event.userId, {
-          role: "customer",
-          text: safeCustomerText,
-          createdAt: now,
-        }),
-        appendConversationMessage(event.userId, {
-          role: "assistant",
-          text: message,
-          createdAt: now,
-        }),
-      ]);
-      return;
-    }
-
-    const cancellationScheduled = billingState.status === "cancel_at_period_end";
-    const portalUrl = await createCustomerPortalSession(event.userId, {
-      cancellationFlow: !cancellationScheduled,
-    });
-    const message = cancellationScheduled
-      ? "退会予約済みです。現在の契約期間が終了するまでは、あんしん会員の機能をご利用いただけます。下のボタンから契約状況の確認や退会予約の取り消しができます。"
-      : "退会はStripeの安全な契約管理画面で手続きできます。退会を確定すると次回更新が停止され、現在の契約期間が終了するまでは、あんしん会員の機能をご利用いただけます。";
-    await pushLineMessage(event.userId, message, randomUUID(), {
-      includeMembershipManagementButton: true,
-      membershipManagementUrl: portalUrl,
-    });
+    const message = await showBillingManagement(event.userId, "cancel");
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
@@ -696,43 +892,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
   }
 
   if (isPricingInquiry(event.text)) {
-    const billingState = stripeBillingEnabled()
-      ? await getMembershipBillingState(event.userId)
-      : null;
-    const alreadyPaid = Boolean(
-      billingState &&
-        ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
-          billingState.status,
-        ),
-    );
-    let stripeJoinUrl: string | undefined;
-    let stripeCheckoutFailed = false;
-    if (stripeBillingEnabled() && !alreadyPaid) {
-      try {
-        stripeJoinUrl = await createSubscriptionCheckoutSession({
-          lineUserId: event.userId,
-          planCode: "anshin",
-          idempotencyKey: event.eventId,
-        });
-      } catch (error) {
-        stripeCheckoutFailed = true;
-        console.error("Stripe Checkout creation failed", {
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          errorMessage: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
-    }
-    await pushLineMessage(
-      event.userId,
-      stripeCheckoutFailed
-        ? `${TAX_AI_PRICING_MESSAGE}\n\n現在、決済ページを作成できません。時間をおいてもう一度お試しください。`
-        : TAX_AI_PRICING_MESSAGE,
-      randomUUID(),
-      {
-        includeMembershipJoinButton: !alreadyPaid,
-        membershipJoinUrl: stripeJoinUrl,
-      },
-    );
+    await showPricingInfo(event.userId);
     await Promise.all([
       appendConversationMessage(event.userId, {
         role: "customer",
@@ -758,7 +918,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     : null;
   if (reservation && !reservation.allowed) {
     await pushLineMessage(event.userId, buildLimitMessage(reservation), randomUUID(), {
-      includeMembershipJoinButton: reservation.planCode === "free",
+      includeMembershipApplyButton: reservation.planCode === "free",
     });
     return;
   }
@@ -782,6 +942,17 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     );
   } catch (error) {
     if (reservation?.usageEventId) await cancelUsage(reservation.usageEventId);
+    // 受付メッセージを送った後に無言で終わると、利用者は回答を待ち続ける。
+    // 失敗したこと、回数を消費していないことを必ず伝える。
+    await notifyUserOfFailure(
+      event.userId,
+      [
+        "申し訳ありません。回答の作成に失敗しました。",
+        "今回の分はAI回答の回数を消費していません。",
+        "",
+        "お手数ですが、もう一度ご質問をお送りください。",
+      ].join("\n"),
+    );
     throw error;
   }
   const clarification = isClarificationOnly(generatedDraft.draftReply);
@@ -940,6 +1111,23 @@ export async function POST(request: Request): Promise<NextResponse> {
     const freeMembershipEvent = getFreeMembershipPostbackEvent(event);
     const paidMembershipEvent = getPaidMembershipPostbackEvent(event);
     const legalAcceptanceEvent = getLegalAcceptancePostbackEvent(event);
+    const simplePostbacks = [
+      ["pricing", "show_pricing"],
+      ["status", "show_status"],
+      ["billing_portal", "open_billing_portal"],
+      ["legal_menu", "show_legal"],
+      ["question_help", "start_question"],
+    ] as const;
+    let matchedSimplePostback = false;
+    for (const [kind, action] of simplePostbacks) {
+      const simpleEvent = getSimplePostbackEvent(event, action);
+      if (!simpleEvent) continue;
+      acceptedEvents.push({ kind, event: simpleEvent });
+      eventPayloadHashes.set(simpleEvent.eventId, payloadHash);
+      matchedSimplePostback = true;
+      break;
+    }
+    if (matchedSimplePostback) continue;
     if (legalAcceptanceEvent) {
       acceptedEvents.push({
         kind: "legal_acceptance",
@@ -1062,9 +1250,43 @@ export async function POST(request: Request): Promise<NextResponse> {
               hasPaidSubscription
                 ? "現在は有料契約中です。無料会員への変更は「退会・契約管理」から期間末解約を行ってください。"
                 : registration.isNew
-                  ? "無料会員として登録しました。AI回答を毎月10回まで利用できます。"
-                  : "現在、無料会員として利用できます。",
+                  ? [
+                      "無料会員として登録しました。",
+                      "AI回答を毎月10回までご利用いただけます。",
+                      "",
+                      "さっそくご質問をどうぞ。このトークにそのままお送りください。",
+                      "",
+                      "【質問の例】",
+                      "・インボイスの2割特例は使えますか",
+                      "・自宅兼事務所の家賃はどこまで経費にできますか",
+                    ].join("\n")
+                  : "現在、無料会員としてご利用いただけます。ご質問はこのトークにそのままお送りください。",
             );
+            await releasePendingQuestion(accepted.event);
+          }
+        } else if (accepted.kind === "status") {
+          await showMembershipStatusSummary(accepted.event.userId);
+        } else if (accepted.kind === "billing_portal") {
+          await showBillingManagement(accepted.event.userId, "manage");
+        } else if (accepted.kind === "legal_menu") {
+          await pushLineLegalMenu(accepted.event.userId, randomUUID());
+        } else if (accepted.kind === "question_help") {
+          await pushLineMessage(
+            accepted.event.userId,
+            TAX_AI_QUESTION_GUIDE_MESSAGE,
+            randomUUID(),
+          );
+        } else if (accepted.kind === "pricing") {
+          if (
+            legalConsentRequired() &&
+            !(await hasPolicyAcceptance(
+              accepted.event.userId,
+              currentPolicyVersion(),
+            ))
+          ) {
+            await showLegalConsentPrompt(accepted.event.userId);
+          } else {
+            await showPricingInfo(accepted.event.userId);
           }
         } else if (accepted.kind === "paid_membership") {
           if (
@@ -1105,20 +1327,23 @@ export async function POST(request: Request): Promise<NextResponse> {
               );
             } else if (stripeBillingEnabled()) {
               try {
-                const checkoutUrl = await createSubscriptionCheckoutSession({
+                const checkout = await createSubscriptionCheckoutSession({
                   lineUserId: accepted.event.userId,
                   planCode: "anshin",
-                  idempotencyKey: accepted.event.eventId,
                 });
                 await pushLineMessage(
                   accepted.event.userId,
-                  `${TAX_AI_PRICING_MESSAGE}\n\n有料会員を選択しました。下のボタンから決済へ進んでください。`,
+                  checkout.reused
+                    ? TAX_AI_CHECKOUT_REUSED_MESSAGE
+                    : TAX_AI_CHECKOUT_INTRO_MESSAGE,
                   randomUUID(),
                   {
                     includeMembershipJoinButton: true,
-                    membershipJoinUrl: checkoutUrl,
+                    membershipJoinUrl: checkout.url,
                   },
                 );
+                // 決済前でも無料枠で回答できるため、預かった質問はここで解放する。
+                await releasePendingQuestion(accepted.event);
               } catch (error) {
                 console.error("Stripe Checkout creation failed", {
                   errorName: error instanceof Error ? error.name : "UnknownError",
@@ -1127,13 +1352,13 @@ export async function POST(request: Request): Promise<NextResponse> {
                 });
                 await sendMembershipStatus(
                   accepted.event.userId,
-                  "決済ページの作成に失敗しました。時間をおいて、もう一度「有料会員」を押してください。",
+                  "決済ページの作成に失敗しました。ご請求は発生していません。時間をおいて、もう一度［あんしん会員に申し込む］を押してください。",
                 );
               }
             } else {
               await sendMembershipStatus(
                 accepted.event.userId,
-                `${TAX_AI_PRICING_MESSAGE}\n\n有料会員を選択しました。現在、決済受付は準備中です。`,
+                `${TAX_AI_PRICING_MESSAGE}\n\n現在、決済受付は準備中です。準備が整い次第ご案内します。`,
               );
             }
           }
@@ -1171,6 +1396,24 @@ export async function POST(request: Request): Promise<NextResponse> {
               ...accepted.event,
               reviewRequestId: accepted.event.reviewRequestId,
             });
+          } else if (
+            accepted.event.action === "restart" &&
+            accepted.event.reviewRequestId
+          ) {
+            // 下書きを取り消して入力受付をやり直す。枠は submit 時点まで予約しないため消費しない。
+            await cancelReviewRequest(
+              accepted.event.userId,
+              accepted.event.reviewRequestId,
+            );
+            if (membershipBillingEnabled()) {
+              await startTaxProfessionalReviewIntake(accepted.event);
+            } else {
+              await pushLineMessage(
+                accepted.event.userId,
+                "税理士への相談内容をもう一度メッセージで送信してください。",
+                randomUUID(),
+              );
+            }
           } else if (accepted.event.reviewRequestId) {
             await cancelReviewRequest(
               accepted.event.userId,
@@ -1178,7 +1421,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             );
             await pushLineMessage(
               accepted.event.userId,
-              "税理士確認の依頼をキャンセルしました。",
+              "税理士相談の依頼をキャンセルしました。相談枠は消費していません。",
               randomUUID(),
             );
           }

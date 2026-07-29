@@ -468,6 +468,43 @@ export async function cancelReviewRequest(
   return rows.length > 0;
 }
 
+/**
+ * 規約同意・会員登録の前に届いた質問を預かる。
+ * 同意カードを表示して処理を打ち切ると質問が失われ、利用者は打ち直しになるため。
+ * 本文はマスク済みのものだけを渡すこと。
+ */
+export async function savePendingQuestion(
+  lineUserId: string,
+  question: string,
+): Promise<void> {
+  const sql = database();
+  // 登録前の利用者を預かるため users への外部キーを持たない。
+  // 未登録のまま放置された行が滞留しないよう、保存のたびに期限切れを削除する。
+  await sql`delete from pending_questions where expires_at <= now()`;
+  await sql`
+    insert into pending_questions (line_user_id, question, created_at, expires_at)
+    values (${lineUserId}, ${question.slice(0, 8000)}, now(), now() + interval '24 hours')
+    on conflict (line_user_id) do update set
+      question = excluded.question,
+      created_at = excluded.created_at,
+      expires_at = excluded.expires_at
+  `;
+}
+
+/** 預かった質問を1度だけ取り出す。期限切れは取り出せない。 */
+export async function takePendingQuestion(
+  lineUserId: string,
+): Promise<string | null> {
+  const sql = database();
+  const rows = await sql`
+    delete from pending_questions
+    where line_user_id = ${lineUserId}
+      and expires_at > now()
+    returning question
+  `;
+  return rows[0] ? String(rows[0].question) : null;
+}
+
 export async function startTaxReviewIntake(lineUserId: string): Promise<void> {
   const sql = database();
   await ensureMembershipUser(lineUserId);
@@ -480,15 +517,22 @@ export async function startTaxReviewIntake(lineUserId: string): Promise<void> {
   `;
 }
 
-export async function takeTaxReviewIntake(lineUserId: string): Promise<boolean> {
+/**
+ * 入力受付を1回だけ取り出す。
+ * 期限切れを "none" と区別して返すことで、受付時間を過ぎた相談文が
+ * 無言で通常のAI質問として扱われ、回数を消費するのを防ぐ。
+ */
+export async function takeTaxReviewIntake(
+  lineUserId: string,
+): Promise<"active" | "expired" | "none"> {
   const sql = database();
   const rows = await sql`
     delete from tax_review_intakes
     where line_user_id = ${lineUserId}
-      and expires_at > now()
-    returning line_user_id
+    returning (expires_at > now()) as still_valid
   `;
-  return rows.length > 0;
+  if (rows.length === 0) return "none";
+  return rows[0].still_valid ? "active" : "expired";
 }
 
 export async function cancelTaxReviewIntake(
@@ -654,11 +698,20 @@ export async function syncStripeMembership(input: {
   status: MembershipStatus;
   periodStart: string;
   periodEnd: string;
-}): Promise<void> {
+}): Promise<MembershipStatus | null> {
   const sql = database();
   await ensureMembershipUser(input.lineUserId);
-  await sql`
-    update users set
+  // 更新前の membership_status を同一ステートメント内で確定させる。
+  // `for update` により、Stripe Webhookが並行到着しても
+  // 2つの処理が同じ「更新前の状態」を読んで二重通知することはない。
+  const rows = await sql`
+    with previous as (
+      select id, membership_status
+      from users
+      where line_user_id = ${input.lineUserId}
+      for update
+    )
+    update users u set
       plan_code = case
         when ${input.status} in ('active', 'cancel_at_period_end', 'past_due')
           then ${input.planCode}
@@ -676,8 +729,12 @@ export async function syncStripeMembership(input: {
         else null
       end,
       updated_at = now()
-    where line_user_id = ${input.lineUserId}
+    from previous
+    where u.id = previous.id
+    returning previous.membership_status as previous_status
   `;
+  const previousStatus = rows[0]?.previous_status;
+  return previousStatus ? (String(previousStatus) as MembershipStatus) : null;
 }
 
 export async function markStripePaymentFailed(input: {

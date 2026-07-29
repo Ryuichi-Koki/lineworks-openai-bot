@@ -27,6 +27,7 @@ try {
     "002_stripe_billing.sql",
     "003_tax_review_intakes.sql",
     "004_policy_acceptances.sql",
+    "005_pending_questions.sql",
   ]) {
     const migration = await readFile(
       path.join(projectRoot, "migrations", filename),

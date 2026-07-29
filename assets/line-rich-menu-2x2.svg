@@ -4,11 +4,11 @@
   <g font-family="'Yu Gothic', 'Meiryo', sans-serif" text-anchor="middle">
     <rect x="0" y="0" width="1250" height="843" fill="#15365f"/>
     <circle cx="625" cy="282" r="104" fill="#ffffff" opacity="0.14"/>
-    <path d="M555 282h140M625 212v140" stroke="#ffffff" stroke-width="30" stroke-linecap="round"/>
-    <text x="625" y="500" fill="#ffffff" font-size="96" font-weight="700">有料会員</text>
-    <text x="625" y="615" fill="#d9e8fb" font-size="58">あんしん会員に登録</text>
+    <path d="M562 219l63 70 63-70M625 289v64M579 309h92M579 337h92" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="625" y="500" fill="#ffffff" font-size="96" font-weight="700">料金プラン</text>
+    <text x="625" y="615" fill="#d9e8fb" font-size="58">無料と有料の違い</text>
     <rect x="330" y="690" width="590" height="112" rx="56" fill="#d9a441"/>
-    <text x="625" y="766" fill="#102540" font-size="54" font-weight="700">料金を見る</text>
+    <text x="625" y="766" fill="#102540" font-size="54" font-weight="700">プランを見る</text>
 
     <rect x="1250" y="0" width="1250" height="843" fill="#e9f5f2"/>
     <circle cx="1875" cy="282" r="104" fill="#2f8174" opacity="0.14"/>

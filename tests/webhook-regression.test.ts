@@ -18,7 +18,12 @@ import {
   updateConsultationReplySession,
   type ApprovalRecord,
 } from "../lib/approvals/store.ts";
-import { pushLineMessage, splitLineMessages } from "../lib/line/client.ts";
+import {
+  pushLineLegalConsentPrompt,
+  pushLineMessage,
+  pushLineReviewConfirmation,
+  splitLineMessages,
+} from "../lib/line/client.ts";
 import { lineApiBaseUrl } from "../lib/line/config.ts";
 import { verifyLineSignature } from "../lib/line/verifySignature.ts";
 import { verifyLineWorksSignature } from "../lib/lineworks/verifySignature.ts";
@@ -187,6 +192,38 @@ test("長文回答をLINE最大3通へ安全に分割する", () => {
   assert.ok(messages.every((message) => message.length <= 4500));
 });
 
+test("枠に収まる長文は切り捨てずに全文を送る", () => {
+  // 1回のpushで最大5通。ボタンがなければ本文に5通ぶん使える。
+  const text = Array.from({ length: 5 }, (_, index) =>
+    [`【見出し${index + 1}】`, "あ".repeat(4000)].join("\n"),
+  ).join("\n");
+  const messages = splitLineMessages(text, 4500, 5);
+
+  assert.equal(messages.length, 5);
+  assert.ok(messages.every((message) => message.length <= 4500));
+  assert.ok(
+    messages.some((message) => message.includes("【見出し5】")),
+    "末尾の見出しまで届くこと",
+  );
+  assert.ok(
+    messages.every((message) => !message.includes("※回答が長いため")),
+    "収まる場合は省略の注記を付けない",
+  );
+});
+
+test("枠を超える場合は省略した旨を明示する（無言で切り捨てない）", () => {
+  const text = Array.from({ length: 6 }, (_, index) =>
+    [`【見出し${index + 1}】`, "あ".repeat(4000)].join("\n"),
+  ).join("\n");
+  const messages = splitLineMessages(text, 4500, 3);
+
+  assert.equal(messages.length, 3);
+  assert.ok(messages.every((message) => message.length <= 4500));
+  const last = messages.at(-1) ?? "";
+  assert.match(last, /※回答が長いため、ここまでを表示しています/);
+  assert.match(last, /内容を分けてもう一度ご質問ください/);
+});
+
 test("必要なAI回答の後に税理士個別相談のボタンテンプレートを付ける", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -290,29 +327,84 @@ test("初回登録用メニューに有料会員と無料会員の両方を表�
   const template = menu?.template as {
     actions?: Array<Record<string, unknown>>;
   };
+  // 税理士相談・契約管理・規約は常設リッチメニュー側にあるため、ここには出さない。
   assert.deepEqual(
     template.actions?.map((action) => action.label),
-    ["有料会員になる", "無料会員で始める", "税理士へ相談", "退会・契約管理"],
+    ["料金・プランを見る", "無料会員で始める", "マイページ"],
   );
+  // 料金の確認は申し込みと分離する。この操作では決済ページを作らない。
   assert.equal(template.actions?.[0]?.type, "postback");
-  assert.equal(
-    template.actions?.[0]?.data,
-    "action=select_paid_membership",
-  );
-  assert.equal(
-    template.actions?.[0]?.displayText,
-    "有料会員の登録手続きへ進みます",
-  );
+  assert.equal(template.actions?.[0]?.data, "action=show_pricing");
+  assert.equal(template.actions?.[0]?.displayText, "料金プランを見ます");
   assert.equal(template.actions?.[1]?.type, "postback");
+  assert.equal(template.actions?.[1]?.data, "action=select_free_membership");
+  assert.equal(template.actions?.[2]?.type, "postback");
+  assert.equal(template.actions?.[2]?.data, "action=show_status");
+  // 利用者の発言として残るmessage actionを使わない
+  assert.ok(
+    template.actions?.every((action) => action.type === "postback"),
+    "会員メニューのボタンはすべてpostbackであること",
+  );
+});
+
+test("税理士相談の確認では依頼内容を全文表示し、消費する枠数を示す", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response("", { status: 200 });
+  };
+
+  // 旧実装は160字で切り捨てていたため、利用者は内容を確認できないまま枠を消費していた。
+  const longSummary = `相談の冒頭です。${"あ".repeat(900)}相談の末尾です。`;
+  try {
+    await pushLineReviewConfirmation(
+      "line-user",
+      longSummary,
+      "review-request-1",
+      randomUUID(),
+      { taxReviewRemaining: 1 },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalToken === undefined) {
+      delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    } else {
+      process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    }
+  }
+
+  const messages = (requestBody as Record<string, unknown>).messages as Array<
+    Record<string, unknown>
+  >;
+  assert.ok(messages.length >= 2, "全文用のテキストと確認カードを分けて送る");
+  assert.ok(messages.length <= 5, "LINEの1回あたり最大5通に収める");
+
+  const bodyText = messages
+    .filter((message) => message.type === "text")
+    .map((message) => String(message.text))
+    .join("");
+  assert.match(bodyText, /相談の冒頭です。/);
+  assert.match(bodyText, /相談の末尾です。/, "末尾まで切り捨てずに表示する");
+
+  const card = messages.at(-1);
+  assert.equal(card?.type, "template");
+  const template = card?.template as {
+    text?: string;
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.ok((template.text?.length ?? 0) <= 160, "ボタンテンプレートは160字以内");
+  assert.match(String(template.text), /残り1件→0件/);
+  assert.deepEqual(
+    template.actions?.map((action) => action.label),
+    ["この内容で依頼する", "入力し直す", "やめる"],
+  );
   assert.equal(
     template.actions?.[1]?.data,
-    "action=select_free_membership",
+    "action=restart_tax_review&id=review-request-1",
   );
-  assert.equal(
-    template.actions?.[2]?.data,
-    "action=start_tax_review_intake",
-  );
-  assert.equal(template.actions?.[3]?.text, "退会したい");
 });
 
 test("常設リッチメニューと重複するクイック返信を通常回答に表示しない", async () => {
@@ -388,16 +480,8 @@ test("LINEから規約4ページを確認し、チェック式で明示同意で
   };
 
   try {
-    await pushLineMessage(
-      "line-user",
-      "登録前に規程をご確認ください。",
-      randomUUID(),
-      {
-        includeLegalMenu: true,
-        includeLegalConsentButtons: true,
-        legalPolicyVersion: "2026-07-24-v1",
-      },
-    );
+    // 本番で実際に使う入口を検証する
+    await pushLineLegalConsentPrompt("line-user", "2026-07-24-v1", randomUUID());
   } finally {
     globalThis.fetch = originalFetch;
     if (originalToken === undefined) {
@@ -415,31 +499,30 @@ test("LINEから規約4ページを確認し、チェック式で明示同意で
   const messages = (requestBody as Record<string, unknown>).messages as Array<
     Record<string, unknown>
   >;
-  assert.equal(messages.length, 3);
-  const legalTemplate = messages[1]?.template as {
-    actions?: Array<Record<string, unknown>>;
-  };
-  assert.deepEqual(
-    legalTemplate.actions?.map((action) => action.uri),
-    [
-      "https://bot.abtax.jp/terms",
-      "https://bot.abtax.jp/privacy",
-      "https://bot.abtax.jp/tokusho",
-      "https://bot.abtax.jp/cancellation",
-    ],
-  );
-  const consentTemplate = messages[2]?.template as {
+  // 規約4文書は一覧ページ1リンクへまとめ、初回の吹き出しを3通から2通に減らす。
+  assert.equal(messages.length, 2);
+  const consentTemplate = messages[1]?.template as {
+    text?: string;
     actions?: Array<Record<string, unknown>>;
   };
   assert.deepEqual(
     consentTemplate.actions?.map((action) => action.label),
-    ["☐ 規約等に同意する"],
+    ["規約を読む", "上記に同意して進む"],
   );
+  assert.equal(consentTemplate.actions?.[0]?.type, "uri");
+  assert.equal(consentTemplate.actions?.[0]?.uri, "https://bot.abtax.jp/legal");
   assert.equal(
-    consentTemplate.actions?.[0]?.data,
+    consentTemplate.actions?.[1]?.data,
     "action=accept_policies&version=2026-07-24-v1",
   );
-  assert.equal(consentTemplate.actions?.[0]?.displayText, "規約等に同意します");
+  assert.equal(consentTemplate.actions?.[1]?.displayText, "規約等に同意します");
+  // 「☐」は未チェックの記号に見え、押しただけでは確定しないと誤解される
+  assert.doesNotMatch(
+    String(consentTemplate.actions?.[1]?.label),
+    /[☐☑✓]/,
+  );
+  // 押した時点で記録が保存されることを本文で明示する
+  assert.match(String(consentTemplate.text), /同意した記録を保存します/);
 });
 
 test("規約等への同意後に無料会員か有料会員を選択できる", async () => {

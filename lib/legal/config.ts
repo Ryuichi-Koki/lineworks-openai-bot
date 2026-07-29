@@ -53,3 +53,8 @@ export function legalAppBaseUrl(): string {
 export function legalDocumentUrl(slug: LegalDocumentSlug): string {
   return `${legalAppBaseUrl()}/${slug}`;
 }
+
+/** 規約類の一覧ページ。同意カードから4文書へまとめて誘導するために使う。 */
+export function legalIndexUrl(): string {
+  return `${legalAppBaseUrl()}/legal`;
+}

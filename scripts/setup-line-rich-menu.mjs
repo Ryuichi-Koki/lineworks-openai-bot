@@ -1,13 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const projectRoot = process.cwd();
 const imagePath = path.join(projectRoot, "assets", "line-rich-menu.png");
 const receiptPath = path.join(projectRoot, ".tools", "line-rich-menu-last.json");
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const apply = args.has("--apply");
 const statusOnly = args.has("--status");
 const accountWideChangeConfirmed = args.has("--confirm-account-wide-change");
+
+// どの環境の認証情報を使うかは常に明示させる。
+// 既定の .env.local は開発用アカウントを指していることがあるため、
+// 本番へ適用する場合は --env=.env.production.local のように指定する。
+const envFileArg = argv.find((value) => value.startsWith("--env="));
+const envFile = envFileArg ? envFileArg.slice("--env=".length).trim() : ".env.local";
+if (!envFile || envFile.includes("..") || path.isAbsolute(envFile)) {
+  throw new Error("--env must be a project-relative env filename");
+}
 
 if (apply && !accountWideChangeConfirmed) {
   throw new Error(
@@ -27,7 +38,7 @@ function parseEnvFile(filename) {
 }
 
 const env = {
-  ...parseEnvFile(path.join(projectRoot, ".env.local")),
+  ...parseEnvFile(path.join(projectRoot, envFile)),
   ...process.env,
 };
 
@@ -48,8 +59,11 @@ function validatePng(filename) {
   }
   const width = image.readUInt32BE(16);
   const height = image.readUInt32BE(20);
-  if (width !== 2500 || height !== 843) {
-    throw new Error(`Expected 2500x843 PNG, received ${width}x${height}`);
+  const { width: expectedWidth, height: expectedHeight } = richMenuDefinition.size;
+  if (width !== expectedWidth || height !== expectedHeight) {
+    throw new Error(
+      `Expected ${expectedWidth}x${expectedHeight} PNG, received ${width}x${height}`,
+    );
   }
   if (image.byteLength > 1024 * 1024) {
     throw new Error("Rich menu image must not exceed 1 MB");
@@ -57,45 +71,82 @@ function validatePng(filename) {
   return { image, width, height, bytes: image.byteLength };
 }
 
+// 上部130pxは個人情報の注意表示。タップ領域は割り当てない。
+const MENU_TOP = 130;
+const ROW_HEIGHT = 778;
+const COLUMN_X = [0, 833, 1666];
+const COLUMN_WIDTH = [833, 833, 834];
+
+function cell(column, row) {
+  return {
+    x: COLUMN_X[column],
+    y: MENU_TOP + row * ROW_HEIGHT,
+    width: COLUMN_WIDTH[column],
+    height: ROW_HEIGHT,
+  };
+}
+
 export const richMenuDefinition = {
-  size: { width: 2500, height: 843 },
+  size: { width: 2500, height: 1686 },
   selected: true,
   name: "ApexBrain 会員メニュー",
-  chatBarText: "会員メニュー",
+  chatBarText: "メニュー",
+  // すべてpostback。message actionは利用者の発言として残るため使わない
+  // （「契約管理」を押しただけで「退会したい」と発言した扱いになるのを防ぐ）。
   areas: [
     {
-      bounds: { x: 0, y: 0, width: 625, height: 843 },
+      bounds: cell(0, 0),
       action: {
         type: "postback",
-        label: "有料会員になる",
-        data: "action=select_paid_membership",
-        displayText: "有料会員の登録手続きへ進みます",
+        label: "質問する",
+        data: "action=start_question",
+        displayText: "質問のしかたを確認します",
       },
     },
     {
-      bounds: { x: 625, y: 0, width: 625, height: 843 },
+      bounds: cell(1, 0),
+      // 料金の確認と申し込みを分離する。ここでは決済ページを作らない。
       action: {
         type: "postback",
-        label: "無料会員で始める",
-        data: "action=select_free_membership",
-        displayText: "無料会員で始める",
+        label: "料金プラン",
+        data: "action=show_pricing",
+        displayText: "料金プランを見ます",
       },
     },
     {
-      bounds: { x: 1250, y: 0, width: 625, height: 843 },
+      bounds: cell(2, 0),
       action: {
         type: "postback",
-        label: "税理士へ相談",
+        label: "税理士に相談",
         data: "action=start_tax_review_intake",
-        displayText: "税理士へ相談",
+        displayText: "税理士に相談します",
       },
     },
     {
-      bounds: { x: 1875, y: 0, width: 625, height: 843 },
+      bounds: cell(0, 1),
       action: {
-        type: "message",
-        label: "退会・契約管理",
-        text: "退会したい",
+        type: "postback",
+        label: "マイページ",
+        data: "action=show_status",
+        displayText: "現在の会員状態を確認します",
+      },
+    },
+    {
+      bounds: cell(1, 1),
+      action: {
+        type: "postback",
+        label: "契約管理",
+        data: "action=open_billing_portal",
+        displayText: "契約管理を開きます",
+      },
+    },
+    {
+      bounds: cell(2, 1),
+      action: {
+        type: "postback",
+        label: "規約・ヘルプ",
+        data: "action=show_legal",
+        displayText: "規約・各種情報を見ます",
       },
     },
   ],
@@ -159,6 +210,7 @@ async function main() {
         {
           mode: "dry-run",
           valid: true,
+          envFile,
           image: {
             path: path.relative(projectRoot, imagePath),
             width: image.width,
@@ -169,8 +221,9 @@ async function main() {
           chatBarText: richMenuDefinition.chatBarText,
           actions: richMenuDefinition.areas.map((area) => area.action.label),
           next:
-            "Run with --status for a read-only account check. " +
-            "Use --apply --confirm-account-wide-change only after explicit approval.",
+            `Credentials are read from ${envFile}. ` +
+            "Run with --status for a read-only account check and confirm the displayName " +
+            "before using --apply --confirm-account-wide-change.",
         },
         null,
         2,
@@ -185,6 +238,7 @@ async function main() {
     console.log(
       JSON.stringify(
         {
+          envFile,
           account,
           defaultRichMenuId: previousDefaultRichMenuId,
         },
@@ -227,6 +281,7 @@ async function main() {
     defaultSet = true;
 
     const receipt = {
+      envFile,
       account,
       richMenuId: createdRichMenuId,
       previousDefaultRichMenuId,
@@ -246,4 +301,12 @@ async function main() {
   }
 }
 
-await main();
+// richMenuDefinition をテストから読み込めるように、
+// 直接実行されたときだけ処理を走らせる。
+const executedDirectly =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (executedDirectly) {
+  await main();
+}

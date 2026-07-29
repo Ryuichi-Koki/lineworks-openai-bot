@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   assertSafeStripePortalUrl,
   buildSubscriptionCheckoutParams,
+  checkoutDayBucket,
+  checkoutIdempotencyKey,
 } from "../lib/stripe/billing.ts";
 import {
   assertSafeStripeSecret,
@@ -114,6 +116,59 @@ test("Stripe subscription Checkout reuses an existing customer safely", () => {
 
   assert.equal(params.customer, "cus_test_existing");
   assert.deepEqual(params.customer_update, { address: "auto", name: "auto" });
+});
+
+test("同じ利用者の連打は同一のCheckoutセッションへ収束する", () => {
+  const params = buildSubscriptionCheckoutParams({
+    lineUserId: "line-test-user",
+    planCode: "anshin",
+    priceId: "price_test_anshin",
+    baseUrl: "http://localhost:3000",
+  });
+
+  // 連打相当：同じ内容・同じ日なら冪等キーは一致する（＝Stripeは新規セッションを作らない）
+  assert.equal(
+    checkoutIdempotencyKey(params, "2026-07-29"),
+    checkoutIdempotencyKey(params, "2026-07-29"),
+  );
+  assert.match(checkoutIdempotencyKey(params, "2026-07-29"), /^checkout:[0-9a-f]{40}$/);
+});
+
+test("利用者・日付・顧客紐付けが変われば冪等キーも変わる", () => {
+  const base = {
+    lineUserId: "line-test-user",
+    planCode: "anshin" as const,
+    priceId: "price_test_anshin",
+    baseUrl: "http://localhost:3000",
+  };
+  const params = buildSubscriptionCheckoutParams(base);
+  const otherUser = buildSubscriptionCheckoutParams({
+    ...base,
+    lineUserId: "line-other-user",
+  });
+  // 顧客紐付け後はパラメータが変わるため、同じキーで異なる内容を送る事故が起きない
+  const withCustomer = buildSubscriptionCheckoutParams({
+    ...base,
+    customerId: "cus_test_existing",
+  });
+
+  assert.notEqual(
+    checkoutIdempotencyKey(params, "2026-07-29"),
+    checkoutIdempotencyKey(otherUser, "2026-07-29"),
+  );
+  assert.notEqual(
+    checkoutIdempotencyKey(params, "2026-07-29"),
+    checkoutIdempotencyKey(withCustomer, "2026-07-29"),
+  );
+  assert.notEqual(
+    checkoutIdempotencyKey(params, "2026-07-29"),
+    checkoutIdempotencyKey(params, "2026-07-30"),
+  );
+});
+
+test("Checkoutの冪等キーは日単位で区切る", () => {
+  assert.equal(checkoutDayBucket(new Date("2026-07-29T23:59:59Z")), "2026-07-29");
+  assert.equal(checkoutDayBucket(new Date("2026-07-30T00:00:01Z")), "2026-07-30");
 });
 
 test("Customer Portal URL accepts only Stripe-hosted HTTPS URLs", () => {

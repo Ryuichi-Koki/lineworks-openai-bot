@@ -1,12 +1,20 @@
+import { createHash } from "node:crypto";
 import type Stripe from "stripe";
+import { pushLineMessage } from "../line/client.ts";
+import {
+  buildBillingNotification,
+  resolveBillingNotification,
+} from "../membership/messages.ts";
 import type { PlanCode } from "../membership/plans.ts";
 import {
   findLineUserForStripeIdentity,
+  getUsageSummary,
   linkStripeBillingIdentity,
   markStripePaymentFailed,
   syncStripeMembership,
   upsertStripeBillingObject,
 } from "../membership/store.ts";
+import type { MembershipStatus } from "../membership/types.ts";
 import { stripeClient } from "./client.ts";
 import { stripePriceForPlan } from "./config.ts";
 import {
@@ -59,6 +67,53 @@ async function lineUserForSubscription(
   return lineUserId;
 }
 
+/**
+ * LINEのリトライキーはUUID形式である必要があるため、
+ * 「利用者・通知種別・契約期間」からUUIDv4形式の決定的なキーを組み立てる。
+ * これによりStripeの再配信でpushが二重に走ってもLINE側で重複排除される。
+ */
+function deterministicRetryKey(seed: string): string {
+  const hex = createHash("sha256").update(seed).digest("hex");
+  const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `4${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-");
+}
+
+/**
+ * 契約状態が変化したときだけLINEへ通知する。
+ * 通知の失敗は会員台帳の更新を巻き戻さない（決済反映が通知障害で壊れないようにする）。
+ */
+async function notifyMembershipChange(input: {
+  lineUserId: string;
+  previousStatus: MembershipStatus | null;
+  nextStatus: MembershipStatus;
+}): Promise<void> {
+  const kind = resolveBillingNotification(input);
+  if (!kind) return;
+  try {
+    const summary = await getUsageSummary(input.lineUserId);
+    await pushLineMessage(
+      input.lineUserId,
+      buildBillingNotification(kind, summary),
+      deterministicRetryKey(
+        `billing:${input.lineUserId}:${kind}:${summary.periodStart}:${summary.periodEnd}`,
+      ),
+      { includePersistentMenuButton: true },
+    );
+  } catch (error) {
+    console.error("Failed to notify LINE of a membership change", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+      notificationKind: kind,
+    });
+  }
+}
+
 export async function projectStripeSubscription(
   subscription: Stripe.Subscription,
 ): Promise<void> {
@@ -66,15 +121,18 @@ export async function projectStripeSubscription(
   if (!customerId) throw new Error("Stripe subscription has no customer");
   const item = subscription.items.data[0];
   if (!item) throw new Error("Stripe subscription has no subscription item");
-  await syncStripeMembership({
-    lineUserId: await lineUserForSubscription(subscription),
+  const lineUserId = await lineUserForSubscription(subscription);
+  const nextStatus = stripeSubscriptionStatus(subscription);
+  const previousStatus = await syncStripeMembership({
+    lineUserId,
     customerId,
     subscriptionId: subscription.id,
     planCode: planFromSubscription(subscription),
-    status: stripeSubscriptionStatus(subscription),
+    status: nextStatus,
     periodStart: isoDateFromUnix(item.current_period_start),
     periodEnd: inclusiveEndDateFromUnix(item.current_period_end),
   });
+  await notifyMembershipChange({ lineUserId, previousStatus, nextStatus });
 }
 
 async function handleCheckoutSession(session: Stripe.Checkout.Session): Promise<void> {

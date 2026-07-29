@@ -42,10 +42,9 @@ if (typeof lineUserId !== "string" || !lineUserId) {
 }
 
 try {
-  const checkoutUrl = await createSubscriptionCheckoutSession({
+  const { url: checkoutUrl } = await createSubscriptionCheckoutSession({
     lineUserId,
     planCode: "anshin",
-    idempotencyKey: `diagnostic-${randomUUID()}`,
   });
   await pushLineMessage(
     lineUserId,

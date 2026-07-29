@@ -76,7 +76,7 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
       "【送信前の確認事項】",
       checks,
       ...(record.requiresTaxProfessionalReview
-        ? ["", "⚠️ 税理士確認・引継ぎ対象です。"]
+        ? ["", "⚠️ 税理士相談・引継ぎ対象です。"]
         : []),
       "",
       "内容を確認して操作してください。",

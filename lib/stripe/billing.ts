@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import type { PlanCode } from "../membership/plans.ts";
 import {
@@ -51,11 +52,33 @@ export function buildSubscriptionCheckoutParams(input: {
   return params;
 }
 
+/**
+ * 同一利用者・同一内容・同一日のCheckout要求を1つのStripeセッションに収束させる。
+ *
+ * 冪等キーをリクエスト内容そのものから導出することで、
+ * 1. ボタン連打では新しいセッションが作られず、同じ決済ページが返る
+ * 2. 内容が変われば（顧客紐付けが済んだ等）キーも変わるため、
+ *    「同じキーで異なるパラメータ」によるStripeエラーが構造的に起きない
+ */
+export function checkoutIdempotencyKey(
+  params: Stripe.Checkout.SessionCreateParams,
+  dayBucket: string,
+): string {
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({ params, dayBucket }))
+    .digest("hex")
+    .slice(0, 40);
+  return `checkout:${fingerprint}`;
+}
+
+export function checkoutDayBucket(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
 export async function createSubscriptionCheckoutSession(input: {
   lineUserId: string;
   planCode: Exclude<PlanCode, "free">;
-  idempotencyKey: string;
-}): Promise<string> {
+}): Promise<{ url: string; reused: boolean }> {
   const stripe = stripeClient();
   const baseUrl = stripeAppBaseUrl();
   const customer = await findStripeCustomerForLineUser(input.lineUserId);
@@ -67,11 +90,15 @@ export async function createSubscriptionCheckoutSession(input: {
     customerId: customer,
   });
   const session = await stripe.checkout.sessions.create(params, {
-    idempotencyKey: `checkout:${input.idempotencyKey}`,
+    idempotencyKey: checkoutIdempotencyKey(params, checkoutDayBucket()),
   });
   assertStripeObjectMode(session.livemode);
   if (!session.url) throw new Error("Stripe Checkout Session returned no URL");
-  return session.url;
+  // 冪等キーによる再生成では、既存セッションの作成時刻がそのまま返る。
+  return {
+    url: session.url,
+    reused: Date.now() / 1000 - session.created > 10,
+  };
 }
 
 export async function createOneTimeCheckoutSession(input: {

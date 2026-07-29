@@ -1,10 +1,52 @@
 :root {
-  color-scheme: light;
+  /* LINE内ブラウザの配色設定に追随する。 */
+  color-scheme: light dark;
+
+  --bg: #f4f7f5;
+  --surface: #fff;
+  --tint: #f0f8f4;
+  --neutral-bg: #e6eef2;
+  --text: #17202a;
+  --text-strong: #3d4b45;
+  --text-muted: #52615b;
+  --neutral-text: #344e59;
+  --heading: #123b2d;
+  --border: #dbe5df;
+  --accent: #087b55;
+  --accent-strong: #0a6246;
+  --accent-border: #2b9a70;
+  --tint-ok-bg: #dcf5e9;
+  --tint-warn-bg: #fff3c4;
+  --tint-warn-text: #694800;
+  --warn-border: #bd7700;
+
   font-family:
     -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic",
     "Meiryo", sans-serif;
-  color: #17202a;
-  background: #f4f7f5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101614;
+    --surface: #18211e;
+    --tint: #1c2a25;
+    --neutral-bg: #1b242a;
+    --text: #e8efea;
+    --text-strong: #cfdad4;
+    --text-muted: #a9b7b0;
+    --neutral-text: #b3c3cc;
+    --heading: #8fd9b8;
+    --border: #2c3a34;
+    --accent: #6fd3aa;
+    --accent-strong: #8fe0bd;
+    --accent-border: #3f8f70;
+    --tint-ok-bg: #17372a;
+    --tint-warn-bg: #3a2f12;
+    --tint-warn-text: #f0d99a;
+    --warn-border: #d5a23f;
+  }
 }
 
 * {
@@ -17,7 +59,7 @@ body {
 }
 
 a {
-  color: #087b55;
+  color: var(--accent);
 }
 
 a:focus-visible {
@@ -33,9 +75,9 @@ a:focus-visible {
 
 .legal-header,
 .legal-card {
-  border: 1px solid #dbe5df;
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 8px 24px rgb(20 58 43 / 7%);
 }
 
@@ -55,8 +97,8 @@ a:focus-visible {
 
 .legal-kicker {
   margin: 0 0 8px;
-  color: #087b55;
-  font-size: 0.82rem;
+  color: var(--accent);
+  font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -71,10 +113,10 @@ a:focus-visible {
   position: relative;
   display: block;
   padding: 18px 48px 18px 20px;
-  border: 1px solid #dbe5df;
+  border: 1px solid var(--border);
   border-radius: 12px;
   color: inherit;
-  background: #fff;
+  background: var(--surface);
   text-decoration: none;
 }
 
@@ -83,15 +125,15 @@ a:focus-visible {
   top: 50%;
   right: 20px;
   content: "›";
-  color: #087b55;
+  color: var(--accent);
   font-size: 1.7rem;
   line-height: 1;
   transform: translateY(-52%);
 }
 
 .legal-link:hover {
-  border-color: #9ccdb9;
-  background: #f7fbf9;
+  border-color: var(--accent-border);
+  background: var(--tint);
 }
 
 .legal-link strong,
@@ -101,8 +143,8 @@ a:focus-visible {
 
 .legal-link span {
   margin-top: 4px;
-  color: #52615b;
-  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-size: 1rem;
 }
 
 .legal-card {
@@ -115,25 +157,25 @@ a:focus-visible {
   margin-bottom: 16px;
   padding: 6px 10px;
   border-radius: 999px;
-  color: #765500;
-  background: #fff3c4;
-  font-size: 0.8rem;
+  color: var(--tint-warn-text);
+  background: var(--tint-warn-bg);
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
 .legal-status-ready {
-  color: #0a6246;
-  background: #dcf5e9;
+  color: var(--accent-strong);
+  background: var(--tint-ok-bg);
 }
 
 .legal-note {
-  color: #52615b;
+  color: var(--text-muted);
   line-height: 1.8;
 }
 
 .legal-office {
   margin-bottom: 18px;
-  color: #3d4b45;
+  color: var(--text-strong);
   font-weight: 600;
 }
 
@@ -142,8 +184,8 @@ a:focus-visible {
   flex-wrap: wrap;
   gap: 8px 20px;
   margin: 0;
-  color: #52615b;
-  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-size: 1rem;
 }
 
 .legal-dates div {
@@ -160,14 +202,14 @@ a:focus-visible {
 }
 
 .legal-body {
-  color: #27332e;
+  color: var(--text);
 }
 
 .legal-body h2 {
   margin: 2.4rem 0 0.75rem;
   padding-bottom: 0.45rem;
-  border-bottom: 1px solid #dbe5df;
-  color: #123b2d;
+  border-bottom: 1px solid var(--border);
+  color: var(--heading);
   font-size: 1.24rem;
 }
 
@@ -178,7 +220,7 @@ a:focus-visible {
 
 .legal-body h3 {
   margin: 1.8rem 0 0.7rem;
-  color: #164c39;
+  color: var(--heading);
   font-size: 1.05rem;
 }
 
@@ -199,15 +241,15 @@ a:focus-visible {
 .legal-introduction {
   margin-top: 0;
   padding: 16px 18px;
-  border-left: 4px solid #2b9a70;
+  border-left: 4px solid var(--accent-border);
   border-radius: 0 10px 10px 0;
-  background: #f0f8f4;
+  background: var(--tint);
 }
 
 .legal-table-wrap {
   overflow-x: auto;
   margin: 1rem 0 1.4rem;
-  border: 1px solid #dbe5df;
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
@@ -218,22 +260,22 @@ a:focus-visible {
 .legal-table-wrap table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  font-size: 1rem;
 }
 
 .legal-table-wrap th,
 .legal-table-wrap td {
   min-width: 170px;
   padding: 12px 14px;
-  border-right: 1px solid #dbe5df;
-  border-bottom: 1px solid #dbe5df;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
 }
 
 .legal-table-wrap th {
-  color: #163d2f;
-  background: #edf6f1;
+  color: var(--heading);
+  background: var(--tint);
   font-weight: 700;
 }
 
@@ -255,9 +297,9 @@ a:focus-visible {
 
 .legal-callout {
   padding: 18px 20px;
-  border: 1px solid #b9ddcc;
+  border: 1px solid var(--accent-border);
   border-radius: 12px;
-  background: #edf8f3;
+  background: var(--tint);
 }
 
 .legal-callout h2 {
@@ -266,10 +308,10 @@ a:focus-visible {
 
 .legal-warning {
   padding: 14px 16px;
-  border-left: 4px solid #c98000;
+  border-left: 4px solid var(--warn-border);
   border-radius: 0 10px 10px 0;
-  color: #694800;
-  background: #fff7df;
+  color: var(--tint-warn-text);
+  background: var(--tint-warn-bg);
   font-weight: 600;
 }
 
@@ -280,8 +322,8 @@ a:focus-visible {
 
 .legal-footer {
   margin-top: 24px;
-  color: #52615b;
-  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
   text-align: center;
 }
 
@@ -293,19 +335,19 @@ a:focus-visible {
 
 .billing-card {
   padding: 36px;
-  border: 1px solid #dbe5df;
-  border-top: 6px solid #2b9a70;
+  border: 1px solid var(--border);
+  border-top: 6px solid var(--accent-border);
   border-radius: 18px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 12px 32px rgb(20 58 43 / 10%);
 }
 
 .billing-card-warning {
-  border-top-color: #c98000;
+  border-top-color: var(--warn-border);
 }
 
 .billing-card-neutral {
-  border-top-color: #557382;
+  border-top-color: var(--neutral-text);
 }
 
 .billing-icon {
@@ -314,8 +356,8 @@ a:focus-visible {
   height: 54px;
   margin-bottom: 18px;
   border-radius: 50%;
-  color: #fff;
-  background: #16865f;
+  color: var(--surface);
+  background: var(--accent);
   font-size: 1.8rem;
   font-weight: 800;
   line-height: 1;
@@ -323,11 +365,11 @@ a:focus-visible {
 }
 
 .billing-card-warning .billing-icon {
-  background: #bd7700;
+  background: var(--warn-border);
 }
 
 .billing-card-neutral .billing-icon {
-  background: #557382;
+  background: var(--neutral-text);
 }
 
 .billing-badge {
@@ -335,32 +377,32 @@ a:focus-visible {
   margin-bottom: 10px;
   padding: 5px 10px;
   border-radius: 999px;
-  color: #0a6246;
-  background: #dcf5e9;
-  font-size: 0.82rem;
+  color: var(--accent-strong);
+  background: var(--tint-ok-bg);
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
 .billing-badge-warning {
-  color: #765500;
-  background: #fff3c4;
+  color: var(--tint-warn-text);
+  background: var(--tint-warn-bg);
 }
 
 .billing-badge-neutral {
-  color: #344e59;
-  background: #e6eef2;
+  color: var(--neutral-text);
+  background: var(--neutral-bg);
 }
 
 .billing-card h1 {
   margin: 0 0 14px;
-  color: #123b2d;
+  color: var(--heading);
   font-size: clamp(1.7rem, 5vw, 2.2rem);
   line-height: 1.35;
 }
 
 .billing-lead {
   margin: 0;
-  color: #3d4b45;
+  color: var(--text-strong);
   font-size: 1.03rem;
 }
 
@@ -386,8 +428,8 @@ a:focus-visible {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  color: #0a6246;
-  background: #edf8f3;
+  color: var(--accent-strong);
+  background: var(--tint);
   content: counter(billing-step);
   font-weight: 800;
   place-items: center;
@@ -397,9 +439,9 @@ a:focus-visible {
   margin: 10px 0 0;
   padding: 14px 16px;
   border-radius: 10px;
-  color: #52615b;
-  background: #f4f7f5;
-  font-size: 0.92rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  font-size: 1rem;
 }
 
 .billing-links {
@@ -408,7 +450,7 @@ a:focus-visible {
   gap: 10px 20px;
   margin-top: 24px;
   padding-top: 18px;
-  border-top: 1px solid #dbe5df;
+  border-top: 1px solid var(--border);
 }
 
 .billing-links a {
@@ -450,8 +492,8 @@ a:focus-visible {
   .legal-table-hint {
     display: block;
     margin: 1rem 0 0.35rem;
-    color: #52615b;
-    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
   }
 
   .billing-shell {

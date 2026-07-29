@@ -1,48 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843">
-  <rect width="2500" height="843" fill="#f5f7fa"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="1686" viewBox="0 0 2500 1686">
+  <rect width="2500" height="1686" fill="#f5f7fa"/>
 
-  <g font-family="'Yu Gothic', 'Meiryo', sans-serif" text-anchor="middle">
-    <rect x="0" y="0" width="625" height="843" fill="#15365f"/>
-    <circle cx="312.5" cy="220" r="92" fill="#ffffff" opacity="0.14"/>
-    <path d="M250 220h125M312.5 157.5v125" stroke="#ffffff" stroke-width="28" stroke-linecap="round"/>
-    <text x="312.5" y="410" fill="#ffffff" font-size="88" font-weight="700">有料会員</text>
-    <text x="312.5" y="510" fill="#d9e8fb" font-size="50">あんしん会員に登録</text>
-    <rect x="98" y="626" width="429" height="102" rx="51" fill="#d9a441"/>
-    <text x="312.5" y="696" fill="#102540" font-size="48" font-weight="700">料金を見る</text>
+  <!-- タイル背景。上部130pxは注意表示のためタップ領域を割り当てない。 -->
+  <g>
+    <rect x="0" y="130" width="833" height="778" fill="#15365f"/>
+    <rect x="833" y="130" width="833" height="778" fill="#fff8e8"/>
+    <rect x="1666" y="130" width="834" height="778" fill="#e9f5f2"/>
+    <rect x="0" y="908" width="833" height="778" fill="#eef1f5"/>
+    <rect x="833" y="908" width="833" height="778" fill="#f5f7fa"/>
+    <rect x="1666" y="908" width="834" height="778" fill="#ffffff"/>
+  </g>
 
-    <rect x="625" y="0" width="625" height="843" fill="#e9f5f2"/>
-    <circle cx="937.5" cy="220" r="92" fill="#2f8174" opacity="0.14"/>
-    <path d="M889 222l33 34 70-79" fill="none" stroke="#2f8174" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="937.5" y="410" fill="#163b36" font-size="88" font-weight="700">無料会員</text>
-    <text x="937.5" y="510" fill="#416b65" font-size="50">月10回まで利用</text>
-    <rect x="723" y="626" width="429" height="102" rx="51" fill="#2f8174"/>
-    <text x="937.5" y="696" fill="#ffffff" font-size="48" font-weight="700">無料で始める</text>
+  <!-- タイル内容。背景に対して垂直中央へ寄せる。 -->
+  <g
+    font-family="'Yu Gothic', 'Meiryo', sans-serif"
+    text-anchor="middle"
+    transform="translate(0,43)"
+  >
+    <!-- 1: 質問する -->
+    <circle cx="416" cy="295" r="80" fill="#ffffff" opacity="0.14"/>
+    <path d="M356 262h120a16 16 0 0 1 16 16v56a16 16 0 0 1-16 16h-64l-40 34v-34h-16a16 16 0 0 1-16-16v-56a16 16 0 0 1 16-16z" fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M398 288a18 18 0 1 1 20 28v10" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="418" cy="349" r="7" fill="#ffffff"/>
+    <text x="416" y="470" fill="#ffffff" font-size="76" font-weight="700">質問する</text>
+    <text x="416" y="552" fill="#d9e8fb" font-size="42">AIが一次回答</text>
+    <rect x="136" y="640" width="560" height="96" rx="48" fill="#d9a441"/>
+    <text x="416" y="705" fill="#102540" font-size="44" font-weight="700">質問のしかた</text>
 
-    <rect x="1250" y="0" width="625" height="843" fill="#fff8e8"/>
-    <circle cx="1562.5" cy="220" r="92" fill="#d9a441" opacity="0.18"/>
-    <path d="M1508 199c0-31 25-56 56-56s56 25 56 56-25 56-56 56h-19l-37 31 9-45c-6-12-9-27-9-42z" fill="none" stroke="#a56d12" stroke-width="22" stroke-linejoin="round"/>
-    <text x="1562.5" y="410" fill="#49340f" font-size="88" font-weight="700">税理士相談</text>
-    <text x="1562.5" y="510" fill="#735a2b" font-size="50">個別事情を確認</text>
-    <rect x="1348" y="626" width="429" height="102" rx="51" fill="#d9a441"/>
-    <text x="1562.5" y="696" fill="#2f220a" font-size="48" font-weight="700">相談を始める</text>
+    <!-- 2: 料金プラン -->
+    <circle cx="1249" cy="295" r="80" fill="#d9a441" opacity="0.20"/>
+    <path d="M1201 245l48 54 48-54M1249 299v54M1211 316h76M1211 340h76" fill="none" stroke="#a56d12" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1249" y="470" fill="#49340f" font-size="76" font-weight="700">料金プラン</text>
+    <text x="1249" y="552" fill="#735a2b" font-size="42">無料と有料の違い</text>
+    <rect x="969" y="640" width="560" height="96" rx="48" fill="#d9a441"/>
+    <text x="1249" y="705" fill="#2f220a" font-size="44" font-weight="700">プランを見る</text>
 
-    <rect x="1875" y="0" width="625" height="843" fill="#eef1f5"/>
-    <circle cx="2187.5" cy="220" r="92" fill="#526479" opacity="0.14"/>
-    <path d="M2132 177h111v113h-111zM2160 144v38M2215 144v38M2156 218h64" fill="none" stroke="#526479" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="2187.5" y="410" fill="#243447" font-size="88" font-weight="700">契約管理</text>
-    <text x="2187.5" y="510" fill="#526479" font-size="50">退会・支払方法</text>
-    <rect x="1973" y="626" width="429" height="102" rx="51" fill="#526479"/>
-    <text x="2187.5" y="696" fill="#ffffff" font-size="48" font-weight="700">手続きを開く</text>
+    <!-- 3: 税理士に相談 -->
+    <circle cx="2083" cy="295" r="80" fill="#2f8174" opacity="0.16"/>
+    <circle cx="2083" cy="272" r="26" fill="none" stroke="#2f8174" stroke-width="16"/>
+    <path d="M2035 350a48 48 0 0 1 96 0" fill="none" stroke="#2f8174" stroke-width="16" stroke-linecap="round"/>
+    <text x="2083" y="470" fill="#163b36" font-size="76" font-weight="700">税理士に相談</text>
+    <text x="2083" y="552" fill="#416b65" font-size="42">個別事情を確認</text>
+    <rect x="1803" y="640" width="560" height="96" rx="48" fill="#2f8174"/>
+    <text x="2083" y="705" fill="#ffffff" font-size="44" font-weight="700">相談を始める</text>
+
+    <!-- 4: マイページ -->
+    <circle cx="416" cy="1073" r="80" fill="#526479" opacity="0.16"/>
+    <path d="M368 1030h96v92h-96z" fill="none" stroke="#526479" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M390 1058h52M390 1084h52M390 1104h30" stroke="#526479" stroke-width="13" stroke-linecap="round"/>
+    <text x="416" y="1248" fill="#243447" font-size="76" font-weight="700">マイページ</text>
+    <text x="416" y="1330" fill="#526479" font-size="42">残り回数・更新日</text>
+    <rect x="136" y="1418" width="560" height="96" rx="48" fill="#526479"/>
+    <text x="416" y="1483" fill="#ffffff" font-size="44" font-weight="700">状態を確認</text>
+
+    <!-- 5: 契約管理 -->
+    <circle cx="1249" cy="1073" r="80" fill="#526479" opacity="0.16"/>
+    <path d="M1197 1038h104v76h-104z" fill="none" stroke="#526479" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M1197 1062h104" stroke="#526479" stroke-width="16"/>
+    <path d="M1219 1092h30" stroke="#526479" stroke-width="13" stroke-linecap="round"/>
+    <text x="1249" y="1248" fill="#243447" font-size="76" font-weight="700">契約管理</text>
+    <text x="1249" y="1330" fill="#526479" font-size="42">支払方法・退会</text>
+    <rect x="969" y="1418" width="560" height="96" rx="48" fill="#526479"/>
+    <text x="1249" y="1483" fill="#ffffff" font-size="44" font-weight="700">手続きを開く</text>
+
+    <!-- 6: 規約・ヘルプ -->
+    <circle cx="2083" cy="1073" r="80" fill="#8b1e2d" opacity="0.12"/>
+    <path d="M2043 1026h60l22 22v74h-82z" fill="none" stroke="#8b1e2d" stroke-width="16" stroke-linejoin="round"/>
+    <path d="M2061 1060h40M2061 1084h40" stroke="#8b1e2d" stroke-width="13" stroke-linecap="round"/>
+    <text x="2083" y="1248" fill="#5c1520" font-size="76" font-weight="700">規約・ヘルプ</text>
+    <text x="2083" y="1330" fill="#8b5560" font-size="42">利用規約・特商法</text>
+    <rect x="1803" y="1418" width="560" height="96" rx="48" fill="#8b1e2d"/>
+    <text x="2083" y="1483" fill="#ffffff" font-size="44" font-weight="700">規約を読む</text>
   </g>
 
   <g font-family="'Yu Gothic', 'Meiryo', sans-serif" text-anchor="middle">
-    <rect x="0" y="0" width="2500" height="112" fill="#8b1e2d"/>
-    <text x="1250" y="74" fill="#ffffff" font-size="48" font-weight="700">⚠ 個人情報（氏名・住所・電話番号・マイナンバー等）は送信しないでください</text>
+    <rect x="0" y="0" width="2500" height="130" fill="#8b1e2d"/>
+    <text x="1250" y="86" fill="#ffffff" font-size="52" font-weight="700">⚠ 個人情報（氏名・住所・電話番号・マイナンバー等）は送信しないでください</text>
   </g>
 
   <g stroke="#ffffff" stroke-width="8" opacity="0.9">
-    <line x1="625" y1="112" x2="625" y2="843"/>
-    <line x1="1250" y1="112" x2="1250" y2="843"/>
-    <line x1="1875" y1="112" x2="1875" y2="843"/>
+    <line x1="833" y1="130" x2="833" y2="1686"/>
+    <line x1="1666" y1="130" x2="1666" y2="1686"/>
+    <line x1="0" y1="908" x2="2500" y2="908"/>
   </g>
 </svg>

@@ -138,7 +138,7 @@ export async function GET(request: Request): Promise<Response> {
     <div class="notice">管理者専用です。LINE userIdは通常マスク表示し、操作は監査ログへ記録します。</div>
     <p>${planCounts.map((item) => `${escapeHtml(item.planCode)}：${item.count}名`).join(" ／ ")}</p>
     <form method="get"><input name="q" value="${escapeHtml(search)}" placeholder="表示名またはLINE userId"><button>検索</button></form>
-    <div class="wrap"><table><thead><tr><th>表示名</th><th>LINE userId</th><th>プラン</th><th>状態</th><th>契約期間</th><th>AI</th><th>税理士確認</th><th>最終利用</th><th>課金</th><th>決済失敗</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="wrap"><table><thead><tr><th>表示名</th><th>LINE userId</th><th>プラン</th><th>状態</th><th>契約期間</th><th>AI</th><th>税理士相談</th><th>最終利用</th><th>課金</th><th>決済失敗</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${selected ? `<h2>利用履歴：${escapeHtml(maskUserId(selected))}</h2><div class="wrap"><table><thead><tr><th>日時</th><th>種類</th><th>状態</th><th>期間</th><th>操作</th></tr></thead><tbody>${historyRows}</tbody></table></div>` : ""}
     </body></html>`;
   return new Response(html, {
