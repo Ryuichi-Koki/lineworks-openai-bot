@@ -31,7 +31,7 @@
     <circle cx="1249" cy="295" r="80" fill="#d9a441" opacity="0.20"/>
     <path d="M1201 245l48 54 48-54M1249 299v54M1211 316h76M1211 340h76" fill="none" stroke="#a56d12" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="1249" y="470" fill="#49340f" font-size="76" font-weight="700">料金プラン</text>
-    <text x="1249" y="552" fill="#735a2b" font-size="42">無料と有料の違い</text>
+    <text x="1249" y="552" fill="#735a2b" font-size="42">AI無料・相談都度払い</text>
     <rect x="969" y="640" width="560" height="96" rx="48" fill="#d9a441"/>
     <text x="1249" y="705" fill="#2f220a" font-size="44" font-weight="700">プランを見る</text>
 

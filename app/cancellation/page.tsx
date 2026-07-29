@@ -13,20 +13,20 @@ export default function CancellationPage() {
         <p className="legal-kicker">TAX HOT LINE</p>
         <h1>解約・退会方法</h1>
         <p>
-          有料会員の定期契約の解約と、無料会員の利用終了に関する窓口をご案内します。
+          既存の有料会員の定期契約の解約と、無料利用の終了に関する窓口をご案内します。税理士へのLINE個別相談は1回ごとの都度払いで、自動更新はありません。
         </p>
       </header>
 
       <article className="legal-card legal-body">
         <section className="legal-callout" aria-labelledby="deadline-heading">
-          <h2 id="deadline-heading">有料会員の解約期限</h2>
+          <h2 id="deadline-heading">既存の有料会員の解約期限</h2>
           <p>
             次回決済日の前日までに手続してください。解約後も既払期間の末日まで利用できます。
             既払料金の日割返金は行いません。
           </p>
         </section>
 
-        <h2>LINEから有料会員を解約する</h2>
+        <h2>LINEから既存の有料会員を解約する</h2>
         <ol className="legal-steps">
           <li>Tax Hot LineのLINE公式アカウントを開きます。</li>
           <li>画面下部のリッチメニューから「退会・契約管理」を選びます。</li>
@@ -39,7 +39,7 @@ export default function CancellationPage() {
           LINE公式アカウントのブロック又は友だち登録解除だけでは、有料会員の解約になりません。
         </p>
 
-        <h2>メールから有料会員を解約する</h2>
+        <h2>メールから既存の有料会員を解約する</h2>
         <p>
           LINEから手続できない場合は、
           <a href="mailto:info@abtax.jp">info@abtax.jp</a>
