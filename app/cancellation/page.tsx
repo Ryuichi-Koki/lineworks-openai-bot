@@ -10,7 +10,7 @@ export default function CancellationPage() {
   return (
     <main className="legal-shell legal-document">
       <header className="legal-header">
-        <p className="legal-kicker">TAX HOT LINE</p>
+        <p className="legal-kicker">スグ税</p>
         <h1>解約・退会方法</h1>
         <p>
           既存の有料会員の定期契約の解約と、無料利用の終了に関する窓口をご案内します。税理士へのLINE個別相談は1回ごとの都度払いで、自動更新はありません。
@@ -28,7 +28,7 @@ export default function CancellationPage() {
 
         <h2>LINEから既存の有料会員を解約する</h2>
         <ol className="legal-steps">
-          <li>Tax Hot LineのLINE公式アカウントを開きます。</li>
+          <li>スグ税のLINE公式アカウントを開きます。</li>
           <li>画面下部のリッチメニューから「退会・契約管理」を選びます。</li>
           <li>表示される現在の契約状態を確認し、解約へ進みます。</li>
           <li>最終確認画面の内容を確認して、手続を確定します。</li>
@@ -63,7 +63,7 @@ export default function CancellationPage() {
         <h2>関連する規程</h2>
         <ul>
           <li>
-            <Link href="/terms">Tax Hot Line利用規約（第11条）</Link>
+            <Link href="/terms">スグ税利用規約（第11条）</Link>
           </li>
           <li>
             <Link href="/tokusho">特定商取引法に基づく表記</Link>

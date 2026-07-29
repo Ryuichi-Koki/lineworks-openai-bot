@@ -72,7 +72,7 @@ export function LegalDocumentPage({ document }: { document: LegalDocument }) {
   return (
     <main className="legal-shell legal-document">
       <header className="legal-header">
-        <p className="legal-kicker">TAX HOT LINE</p>
+        <p className="legal-kicker">スグ税</p>
         <h1>{document.title}</h1>
         <p className="legal-office">{document.office}</p>
         <dl className="legal-dates">

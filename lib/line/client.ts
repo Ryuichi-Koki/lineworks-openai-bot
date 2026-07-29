@@ -324,7 +324,7 @@ export async function pushLineLegalConsentPrompt(
   // 規約4文書へは一覧ページ1リンクで誘導し、吹き出しを3通から2通に減らす。
   await pushLineMessage(
     userId,
-    "Tax Hot Lineへようこそ。\nご利用開始の前に、利用規約とプライバシーポリシーをご確認ください。",
+    "スグ税へようこそ。\nご利用開始の前に、利用規約とプライバシーポリシーをご確認ください。",
     retryKey,
     {
       includeLegalConsentButtons: true,

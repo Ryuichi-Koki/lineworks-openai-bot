@@ -1,7 +1,7 @@
 export const LEGAL_DOCUMENTS = [
   {
     slug: "terms",
-    title: "Tax Hot Line利用規約",
+    title: "スグ税利用規約",
     description: "サービスの利用条件、禁止事項、責任範囲等",
   },
   {

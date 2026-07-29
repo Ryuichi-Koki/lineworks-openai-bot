@@ -24,7 +24,7 @@ function allText(blocks: LegalBlock[]): string {
 }
 
 test("2026年7月30日改定版の正式名称と改定日を表示する", () => {
-  assert.equal(termsDocument.title, "Tax Hot Line利用規約");
+  assert.equal(termsDocument.title, "スグ税利用規約");
   assert.equal(termsDocument.enactedOn, "2026年7月24日");
   assert.equal(termsDocument.revisedOn, "2026年7月30日");
   assert.equal(privacyDocument.revisedOn, "2026年7月30日");

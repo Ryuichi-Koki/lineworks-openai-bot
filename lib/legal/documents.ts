@@ -34,7 +34,7 @@ const operatorRows = [
 ];
 
 export const termsDocument: LegalDocument = {
-  title: "Tax Hot Line利用規約",
+  title: "スグ税利用規約",
   office: "Apex Brain税理士法人 沖縄事務所",
   enactedOn: "2026年7月24日",
   revisedOn: "2026年7月30日",
@@ -446,7 +446,7 @@ export const tokushoDocument: LegalDocument = {
           "請求があった場合は、遅滞なく開示します。請求は上記メールアドレス又は当法人ウェブサイトのお問い合わせフォームから受け付けます。",
         ],
         ["ウェブサイト", "https://www.abtax.jp/"],
-        ["サービス名称", "Tax Hot Line"],
+        ["サービス名称", "スグ税"],
         [
           "無料サービスの内容",
           "AIによる一般的な税務情報の提供及び暫定的な回答（月100件まで）、税制改正その他の税務情報配信\n※個別具体的な税務判断、税務代理、申告書等の作成・提出、税務調査対応、記帳代行、決算、電話・面談相談は含みません。",
@@ -500,7 +500,7 @@ export const tokushoDocument: LegalDocument = {
         ],
         [
           "利用規約",
-          "当法人ウェブサイト（https://www.abtax.jp/）に掲載するTax Hot Line利用規約をご確認ください。",
+          "当法人ウェブサイト（https://www.abtax.jp/）に掲載するスグ税利用規約をご確認ください。",
         ],
         [
           "その他",

@@ -25,7 +25,7 @@ export function BillingStatusPage({
         <div className="billing-icon" aria-hidden="true">
           {icon}
         </div>
-        <p className="legal-kicker">TAX HOT LINE</p>
+        <p className="legal-kicker">スグ税</p>
         <span className={`billing-badge billing-badge-${tone}`}>{badge}</span>
         <h1>{title}</h1>
         <p className="billing-lead">{description}</p>

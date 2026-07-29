@@ -11,10 +11,10 @@ export default function LegalIndexPage() {
   return (
     <main className="legal-shell">
       <section className="legal-header">
-        <p className="legal-kicker">TAX HOT LINE</p>
+        <p className="legal-kicker">スグ税</p>
         <h1>規約・各種情報</h1>
         <p>
-          Tax Hot Lineのサービス利用条件、個人情報の取扱い、料金・解約条件をご確認いただけます。
+          スグ税のサービス利用条件、個人情報の取扱い、料金・解約条件をご確認いただけます。
         </p>
       </section>
 

@@ -2,7 +2,7 @@
 
 監査更新日: 2026-07-27
 
-対象: Tax Hot Line / ApexBrain税理士法人
+対象: スグ税 / ApexBrain税理士法人
 
 ## 結論
 
