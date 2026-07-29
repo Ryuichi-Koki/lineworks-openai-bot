@@ -37,7 +37,7 @@ export const termsDocument: LegalDocument = {
   title: "Tax Hot Line利用規約",
   office: "Apex Brain税理士法人 沖縄事務所",
   enactedOn: "2026年7月24日",
-  revisedOn: "2026年7月30日（改定案）",
+  revisedOn: "2026年7月30日",
   introduction:
     "本利用規約は、Apex Brain税理士法人がLINE公式アカウント、ウェブサイトその他指定する方法を通じて提供する税務情報・税務相談サービスの利用条件を定めるものです。",
   blocks: [
@@ -232,11 +232,11 @@ export const termsDocument: LegalDocument = {
     },
     {
       type: "paragraph",
-      text: "附則1　本規約は、2026年7月24日から施行します。本改定案の効力発生日は、本番公開前に確定して表示します。",
+      text: "附則1　本規約は、2026年7月24日から施行し、2026年7月30日に改定します。",
     },
     {
       type: "paragraph",
-      text: "附則2　本改定前に成立した月額有料会員契約には、当該契約期間が終了するまで従前の利用条件を適用します。更新停止日その他の経過措置は、対象者へ個別に通知します。本改定は既に発生した権利義務を遡及して変更しません。",
+      text: "附則2　本改定前に成立した月額有料会員契約には、当該契約期間が終了するまで従前の利用条件を適用し、当該期間の満了をもって更新を停止します。対象者には個別に通知します。本改定は既に発生した権利義務を遡及して変更しません。",
     },
   ],
 };
@@ -245,7 +245,7 @@ export const privacyDocument: LegalDocument = {
   title: "プライバシーポリシー",
   office: "Apex Brain税理士法人 沖縄事務所",
   enactedOn: "2026年7月24日",
-  revisedOn: "2026年7月30日（改定案）",
+  revisedOn: "2026年7月30日",
   introduction:
     "Apex Brain税理士法人は、当法人が提供する税務情報・税務相談サービスにおいて取り扱う個人情報について、個人情報保護法、税理士法その他の関係法令を遵守し、以下のとおり取り扱います。",
   blocks: [
@@ -427,7 +427,7 @@ export const tokushoDocument: LegalDocument = {
   title: "特定商取引法に基づく表記",
   office: "Apex Brain税理士法人 沖縄事務所",
   enactedOn: "2026年7月24日",
-  revisedOn: "2026年7月30日（改定案）",
+  revisedOn: "2026年7月30日",
   blocks: [
     {
       type: "table",
@@ -484,7 +484,7 @@ export const tokushoDocument: LegalDocument = {
         ],
         [
           "既存月額契約の取扱い",
-          "本改定前に成立した月額契約は、当該契約期間中は従前の条件を適用します。更新停止日その他の経過措置は対象者へ個別に通知します。",
+          "本改定前に成立した月額契約は、当該契約期間中は従前の条件を適用し、当該期間の満了をもって更新を停止します。対象者には個別に通知します。",
         ],
         [
           "申込みの撤回・返金",

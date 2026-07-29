@@ -23,11 +23,11 @@ function allText(blocks: LegalBlock[]): string {
     .join("\n");
 }
 
-test("2026年7月30日改定案の正式名称と改定状態を表示する", () => {
+test("2026年7月30日改定版の正式名称と改定日を表示する", () => {
   assert.equal(termsDocument.title, "Tax Hot Line利用規約");
   assert.equal(termsDocument.enactedOn, "2026年7月24日");
-  assert.equal(termsDocument.revisedOn, "2026年7月30日（改定案）");
-  assert.equal(privacyDocument.revisedOn, "2026年7月30日（改定案）");
+  assert.equal(termsDocument.revisedOn, "2026年7月30日");
+  assert.equal(privacyDocument.revisedOn, "2026年7月30日");
   assert.equal(tokushoDocument.office, "Apex Brain税理士法人 沖縄事務所");
 });
 
@@ -39,6 +39,7 @@ test("利用規約に無料100件・都度課金・決済前確認・経過措�
   assert.match(text, /月額料金又は自動更新はありません/);
   assert.match(text, /確認ボタンを押しただけでは料金は発生しません/);
   assert.match(text, /従前の利用条件を適用/);
+  assert.match(text, /期間の満了をもって更新を停止/);
   assert.doesNotMatch(text, /月額利用料金は月額3,300円/);
 });
 
