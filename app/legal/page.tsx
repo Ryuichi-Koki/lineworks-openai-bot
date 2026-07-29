@@ -30,7 +30,7 @@ export default function LegalIndexPage() {
       <section className="legal-card">
         <span className="legal-status legal-status-ready">公開中</span>
         <p className="legal-note">
-          制定日・最終改定日はいずれも2026年7月24日です。会員登録前にも各文書の全文をご確認いただけます。
+          制定日は2026年7月24日、最終改定日は2026年7月30日です。会員登録前にも各文書の全文をご確認いただけます。
         </p>
       </section>
 
