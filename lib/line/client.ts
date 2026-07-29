@@ -23,6 +23,9 @@ export async function pushLineMessage(
     includeMembershipApplyButton?: boolean;
     includeMembershipJoinButton?: boolean;
     membershipJoinUrl?: string;
+    includeTaxReviewPaymentButton?: boolean;
+    taxReviewPaymentUrl?: string;
+    taxReviewPaymentAmount?: number;
     includeMembershipManagementButton?: boolean;
     membershipManagementUrl?: string;
     includeMembershipMenu?: boolean;
@@ -89,6 +92,30 @@ export async function pushLineMessage(
             type: "uri",
             label: "決済画面へ進む",
             uri: joinUrl,
+          },
+        ],
+      },
+    });
+  }
+  const taxReviewPaymentUrl = options.taxReviewPaymentUrl?.trim();
+  if (options.includeTaxReviewPaymentButton && taxReviewPaymentUrl) {
+    const amount = options.taxReviewPaymentAmount;
+    if (!Number.isInteger(amount) || Number(amount) < 1) {
+      throw new Error(
+        "taxReviewPaymentAmount is required when the payment button is included",
+      );
+    }
+    messagePayloads.push({
+      type: "template",
+      altText: "税理士相談のお支払いへ進む",
+      template: {
+        type: "buttons",
+        text: `相談1回分 ${Number(amount).toLocaleString("ja-JP")}円（税込）をStripeの安全な決済画面でお支払いください。自動更新はありません。`,
+        actions: [
+          {
+            type: "uri",
+            label: "1回分を支払う",
+            uri: taxReviewPaymentUrl,
           },
         ],
       },
@@ -196,23 +223,23 @@ export async function pushLineMessage(
   if (options.includeMembershipSelectionButtons) {
     messagePayloads.push({
       type: "template",
-      altText: "無料会員または有料会員を選択",
+      altText: "無料利用を開始",
       template: {
         type: "buttons",
-        title: "会員種別を選択",
-        text: "☑ 規約等への同意を記録しました。続けて会員種別を選択してください。",
+        title: "無料利用を開始",
+        text: "☑ 規約等への同意を記録しました。AI回答は毎月100件まで無料です。",
         actions: [
           {
             type: "postback",
-            label: "無料会員を選ぶ",
+            label: "無料で始める",
             data: "action=select_free_membership",
-            displayText: "無料会員を選びます",
+            displayText: "無料で始めます",
           },
           {
             type: "postback",
-            label: "有料会員を選ぶ",
-            data: "action=select_paid_membership",
-            displayText: "有料会員を選びます",
+            label: "料金を確認する",
+            data: "action=show_pricing",
+            displayText: "料金を確認します",
           },
         ],
       },
@@ -318,13 +345,19 @@ export async function pushLineReviewConfirmation(
   summary: string,
   reviewRequestId: string,
   retryKey: string,
-  options: { taxReviewRemaining: number },
+  options: {
+    taxReviewRemaining: number;
+    requiresPayment?: boolean;
+    paymentAmount?: number;
+  },
 ): Promise<void> {
   // 依頼内容は全文をテキストで再掲する。ボタンテンプレートのtextは160字までのため、
   // ここに相談内容を入れると利用者は自分が送った内容を確認できないまま枠を消費してしまう。
   const safeSummary = maskLineOutput(summary);
   const remaining = Math.max(options.taxReviewRemaining, 0);
   const afterSubmit = Math.max(remaining - 1, 0);
+  const requiresPayment = options.requiresPayment === true;
+  const paymentAmount = options.paymentAmount ?? 0;
   const bodyMessages = splitLineMessages(
     [
       "以下の内容で税理士へ依頼します。内容をご確認ください。",
@@ -353,7 +386,9 @@ export async function pushLineReviewConfirmation(
             type: "buttons",
             text: [
               "この内容で依頼しますか？",
-              `確定すると税理士相談の枠を1件消費します（残り${remaining}件→${afterSubmit}件）。`,
+              requiresPayment
+                ? `次に相談1回分 ${paymentAmount.toLocaleString("ja-JP")}円（税込）の決済画面へ進みます。このボタンではまだ請求されません。`
+                : `確定すると税理士相談の枠を1件消費します（残り${remaining}件→${afterSubmit}件）。`,
             ]
               .join("\n")
               .slice(0, 160),

@@ -5,6 +5,7 @@ import type {
   UsageReservation,
   UsageSummary,
 } from "./types.ts";
+import { oneTimeConsultationBillingEnabled } from "../stripe/consultationPricing.ts";
 
 const PAID_STATUSES: MembershipStatus[] = [
   "active",
@@ -35,10 +36,17 @@ export function buildLimitMessage(reservation: UsageReservation): string {
       "今月の無料AI回答回数を使い切りました。",
       "",
       `次回利用可能日：${next}`,
-      "",
-      `あんしん会員では、AI回答を1契約期間につき${PLAN_CONFIG.anshin.aiLimit}回まで利用でき、${PLAN_CONFIG.anshin.taxReviewLimit}件まで税理士への確認を依頼できます。`,
-      "",
-      "下のボタンから、あんしん会員のご案内をご確認いただけます。",
+      ...(oneTimeConsultationBillingEnabled()
+        ? [
+            "",
+            "税理士へのLINE個別相談は、AI回答の残数にかかわらず1回ごとにお申し込みいただけます。",
+          ]
+        : [
+            "",
+            `あんしん会員では、AI回答を1契約期間につき${PLAN_CONFIG.anshin.aiLimit}回まで利用でき、${PLAN_CONFIG.anshin.taxReviewLimit}件まで税理士への確認を依頼できます。`,
+            "",
+            "下のボタンから、あんしん会員のご案内をご確認いただけます。",
+          ]),
     ].join("\n");
   }
   return [
@@ -105,7 +113,9 @@ export function buildStatusMessage(summary: UsageSummary): string {
   lines.push(
     plan.taxReviewLimit > 0
       ? `・税理士相談：${summary.taxReviewRemaining}件 / ${plan.taxReviewLimit}件`
-      : "・税理士相談：あんしん会員でご利用いただけます",
+      : oneTimeConsultationBillingEnabled()
+        ? "・税理士相談：1回ごとのお支払いで利用できます"
+        : "・税理士相談：あんしん会員でご利用いただけます",
   );
 
   if (summary.planCode !== "free") {
@@ -253,7 +263,9 @@ export function buildBillingNotification(
         "",
         "本日から無料会員としてご利用いただけます。",
         `・AI回答：毎月${PLAN_CONFIG.free.aiLimit}回まで`,
-        "・税理士への個別相談：ご利用いただけません",
+        oneTimeConsultationBillingEnabled()
+          ? "・税理士へのLINE個別相談：1回ごとのお支払い"
+          : "・税理士への個別相談：ご利用いただけません",
         "",
         "再度のご登録はいつでも可能です。",
       ].join("\n");

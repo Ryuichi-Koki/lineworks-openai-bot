@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import type { PlanCode } from "../membership/plans.ts";
 import {
+  attachTaxReviewCheckout,
+  createOrGetTaxReviewPayment,
   findStripeBillingIdentityForLineUser,
   findStripeCustomerForLineUser,
 } from "../membership/store.ts";
@@ -11,6 +13,10 @@ import {
   stripeAppBaseUrl,
   stripePriceForPlan,
 } from "./config.ts";
+import {
+  taxReviewPriceAt,
+  taxReviewPriceId,
+} from "./consultationPricing.ts";
 
 function safeMetadata(input: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
@@ -137,6 +143,92 @@ export async function createOneTimeCheckoutSession(input: {
   assertStripeObjectMode(session.livemode);
   if (!session.url) throw new Error("Stripe Checkout Session returned no URL");
   return session.url;
+}
+
+export async function createTaxReviewCheckoutSession(input: {
+  lineUserId: string;
+  reviewRequestId: string;
+  now?: Date;
+}): Promise<{ url: string; amount: number; reused: boolean }> {
+  const now = input.now ?? new Date();
+  const selectedPrice = taxReviewPriceAt(now);
+  const payment = await createOrGetTaxReviewPayment({
+    lineUserId: input.lineUserId,
+    reviewRequestId: input.reviewRequestId,
+    priceCode: selectedPrice.code,
+    amount: selectedPrice.amount,
+  });
+  if (
+    payment.status === "pending" &&
+    payment.checkoutUrl &&
+    payment.checkoutExpiresAt &&
+    Date.parse(payment.checkoutExpiresAt) > now.getTime() + 60_000
+  ) {
+    return { url: payment.checkoutUrl, amount: payment.amount, reused: true };
+  }
+  if (payment.status === "paid" || payment.status === "consumed") {
+    throw new Error("This tax review has already been paid");
+  }
+
+  const stripe = stripeClient();
+  const priceId = taxReviewPriceId(selectedPrice);
+  const price = await stripe.prices.retrieve(priceId);
+  assertStripeObjectMode(price.livemode);
+  if (
+    price.type !== "one_time" ||
+    price.currency !== selectedPrice.currency ||
+    price.unit_amount !== selectedPrice.amount ||
+    price.tax_behavior !== "inclusive"
+  ) {
+    throw new Error(
+      `${selectedPrice.priceIdEnv} must be a one-time JPY ${selectedPrice.amount} tax-inclusive Price`,
+    );
+  }
+
+  const customer = await findStripeCustomerForLineUser(input.lineUserId);
+  const metadata = safeMetadata({
+    purchase_type: "tax_review",
+    line_user_id: input.lineUserId,
+    reference_id: payment.id,
+    review_request_id: input.reviewRequestId,
+    price_code: selectedPrice.code,
+  });
+  // Stripeは作成時点から最低30分後を要求する。API往復中に下回らないよう31分にする。
+  const expiresAt = Math.floor(now.getTime() / 1000) + 31 * 60;
+  const params: Stripe.Checkout.SessionCreateParams = {
+    mode: "payment",
+    locale: "ja",
+    client_reference_id: input.lineUserId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    customer_creation: customer ? undefined : "always",
+    customer: customer ?? undefined,
+    customer_update: customer ? { address: "auto", name: "auto" } : undefined,
+    automatic_tax: { enabled: true },
+    billing_address_collection: "required",
+    tax_id_collection: { enabled: true },
+    metadata,
+    payment_intent_data: { metadata },
+    expires_at: expiresAt,
+    success_url: `${stripeAppBaseUrl()}/billing/success?purchase=tax_review&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${stripeAppBaseUrl()}/billing/cancel?purchase=tax_review`,
+  };
+  const session = await stripe.checkout.sessions.create(params, {
+    idempotencyKey: [
+      "tax-review-checkout",
+      payment.id,
+      selectedPrice.code,
+      Math.floor(now.getTime() / (30 * 60 * 1000)),
+    ].join(":"),
+  });
+  assertStripeObjectMode(session.livemode);
+  if (!session.url) throw new Error("Stripe Checkout Session returned no URL");
+  await attachTaxReviewCheckout({
+    paymentId: payment.id,
+    checkoutSessionId: session.id,
+    checkoutUrl: session.url,
+    checkoutExpiresAt: new Date(expiresAt * 1000).toISOString(),
+  });
+  return { url: session.url, amount: selectedPrice.amount, reused: false };
 }
 
 export async function createCustomerPortalSession(

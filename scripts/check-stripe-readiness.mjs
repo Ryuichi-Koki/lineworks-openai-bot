@@ -56,6 +56,16 @@ const checks = [
     requirement: "sandbox recurring Price ID",
   },
   {
+    name: "STRIPE_PRICE_TAX_REVIEW_PROMO",
+    ok: (env.STRIPE_PRICE_TAX_REVIEW_PROMO ?? "").startsWith("price_"),
+    requirement: "sandbox one-time JPY 1,000 tax-inclusive Price ID",
+  },
+  {
+    name: "STRIPE_PRICE_TAX_REVIEW_STANDARD",
+    ok: (env.STRIPE_PRICE_TAX_REVIEW_STANDARD ?? "").startsWith("price_"),
+    requirement: "sandbox one-time JPY 3,000 tax-inclusive Price ID",
+  },
+  {
     name: "STRIPE_PORTAL_CONFIGURATION_ID",
     ok:
       !(env.STRIPE_PORTAL_CONFIGURATION_ID ?? "") ||
@@ -88,6 +98,11 @@ const checks = [
     name: "migration 004",
     ok: existsSync(resolve(root, "migrations", "004_policy_acceptances.sql")),
     requirement: "policy-acceptance audit migration",
+  },
+  {
+    name: "migration 006",
+    ok: existsSync(resolve(root, "migrations", "006_one_time_tax_review.sql")),
+    requirement: "one-time tax-review payment migration",
   },
 ];
 

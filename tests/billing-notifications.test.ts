@@ -129,7 +129,7 @@ test("契約終了通知は無料会員として使える範囲を示す", () =>
     summary({ planCode: "free", membershipStatus: "canceled" }),
   );
   assert.match(message, /契約が終了しました/);
-  assert.match(message, /AI回答：毎月10回まで/);
+  assert.match(message, /AI回答：毎月100回まで/);
 });
 
 test("マイページは有料会員のプラン・残数・更新日を示す", () => {
@@ -156,7 +156,7 @@ test("マイページは無料会員に上位プランの案内を示す", () =>
   );
 
   assert.match(message, /無料会員/);
-  assert.match(message, /AI回答：7回 \/ 10回/);
+  assert.match(message, /AI回答：7回 \/ 100回/);
   assert.match(message, /税理士相談：あんしん会員でご利用いただけます/);
   assert.doesNotMatch(message, /次回更新日/);
 });

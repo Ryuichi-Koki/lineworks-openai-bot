@@ -7,9 +7,12 @@ import {
 } from "../membership/messages.ts";
 import type { PlanCode } from "../membership/plans.ts";
 import {
+  completePaidTaxReview,
   findLineUserForStripeIdentity,
   getUsageSummary,
   linkStripeBillingIdentity,
+  markTaxReviewPaymentFailed,
+  markTaxReviewPaymentPaid,
   markStripePaymentFailed,
   syncStripeMembership,
   upsertStripeBillingObject,
@@ -17,6 +20,7 @@ import {
 import type { MembershipStatus } from "../membership/types.ts";
 import { stripeClient } from "./client.ts";
 import { stripePriceForPlan } from "./config.ts";
+import { dispatchTaxProfessionalReview } from "../tax/consultationService.ts";
 import {
   inclusiveEndDateFromUnix,
   isoDateFromUnix,
@@ -157,6 +161,39 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session): Promise<
     metadata: session.metadata ?? {},
     occurredAt: new Date(session.created * 1000).toISOString(),
   });
+
+  if (
+    session.metadata?.purchase_type === "tax_review" &&
+    session.payment_status === "paid"
+  ) {
+    const paymentId = session.metadata.reference_id?.trim();
+    const metadataLineUserId = session.metadata.line_user_id?.trim();
+    const metadataReviewRequestId = session.metadata.review_request_id?.trim();
+    if (
+      !paymentId ||
+      !metadataLineUserId ||
+      !metadataReviewRequestId ||
+      session.amount_total === null ||
+      !session.currency
+    ) {
+      throw new Error("Paid tax review Checkout Session is missing payment metadata");
+    }
+    const payment = await markTaxReviewPaymentPaid({
+      paymentId,
+      lineUserId: metadataLineUserId,
+      reviewRequestId: metadataReviewRequestId,
+      checkoutSessionId: session.id,
+      paymentIntentId: stripeId(session.payment_intent),
+      amount: session.amount_total,
+      currency: session.currency,
+    });
+    await dispatchTaxProfessionalReview({
+      eventId: `stripe:${session.id}:tax_review`,
+      userId: payment.lineUserId,
+      customerText: payment.questionSummary,
+    });
+    await completePaidTaxReview(payment.id);
+  }
 }
 
 function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
@@ -196,8 +233,14 @@ async function handleInvoice(invoice: Stripe.Invoice, eventType: string): Promis
 export async function processStripeEvent(event: Stripe.Event): Promise<string> {
   switch (event.type) {
     case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
       await handleCheckoutSession(event.data.object as Stripe.Checkout.Session);
       return "checkout_session_projected";
+    case "checkout.session.async_payment_failed":
+      await markTaxReviewPaymentFailed(
+        (event.data.object as Stripe.Checkout.Session).id,
+      );
+      return "tax_review_payment_failed";
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":

@@ -4,6 +4,7 @@ import { freePeriod } from "./periods.ts";
 import type {
   MembershipStatus,
   MembershipSync,
+  TaxReviewPayment,
   UsageReservation,
   UsageSummary,
   UsageType,
@@ -47,6 +48,26 @@ function toReservation(row: Record<string, unknown>): UsageReservation {
     remainingCount: Number(row.remaining_count),
     periodStart: toIsoDate(row.period_start),
     periodEnd: toIsoDate(row.period_end),
+  };
+}
+
+function toTaxReviewPayment(row: Record<string, unknown>): TaxReviewPayment {
+  return {
+    id: String(row.id),
+    reviewRequestId: String(row.review_request_id),
+    lineUserId: String(row.line_user_id),
+    questionSummary: String(row.question_summary),
+    priceCode: String(row.price_code) as TaxReviewPayment["priceCode"],
+    amount: Number(row.amount),
+    currency: "jpy",
+    status: String(row.status) as TaxReviewPayment["status"],
+    checkoutSessionId: row.stripe_checkout_session_id
+      ? String(row.stripe_checkout_session_id)
+      : null,
+    checkoutUrl: row.checkout_url ? String(row.checkout_url) : null,
+    checkoutExpiresAt: row.checkout_expires_at
+      ? new Date(String(row.checkout_expires_at)).toISOString()
+      : null,
   };
 }
 
@@ -466,6 +487,227 @@ export async function cancelReviewRequest(
     returning r.id
   `;
   return rows.length > 0;
+}
+
+export async function createOrGetTaxReviewPayment(input: {
+  lineUserId: string;
+  reviewRequestId: string;
+  priceCode: TaxReviewPayment["priceCode"];
+  amount: number;
+}): Promise<TaxReviewPayment> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const requestRows = await transaction`
+      select r.id, r.status, r.question_summary, u.id as user_id, u.line_user_id
+      from review_requests r
+      join users u on u.id = r.user_id
+      where r.id = ${input.reviewRequestId}
+        and u.line_user_id = ${input.lineUserId}
+      for update
+    `;
+    const request = requestRows[0];
+    if (!request) throw new Error("Review request not found");
+    if (!["draft", "awaiting_payment"].includes(String(request.status))) {
+      throw new Error("Review request is not available for payment");
+    }
+
+    await transaction`
+      insert into tax_review_payments (
+        review_request_id, user_id, price_code, amount, currency, status
+      ) values (
+        ${input.reviewRequestId}, ${String(request.user_id)},
+        ${input.priceCode}, ${input.amount}, 'jpy', 'pending'
+      )
+      on conflict (review_request_id) do update set
+        price_code = case
+          when tax_review_payments.status = 'failed'
+            or (
+              tax_review_payments.status = 'pending'
+              and (
+                tax_review_payments.stripe_checkout_session_id is null
+                or tax_review_payments.checkout_expires_at <= now()
+              )
+            )
+            then excluded.price_code
+          else tax_review_payments.price_code
+        end,
+        amount = case
+          when tax_review_payments.status = 'failed'
+            or (
+              tax_review_payments.status = 'pending'
+              and (
+                tax_review_payments.stripe_checkout_session_id is null
+                or tax_review_payments.checkout_expires_at <= now()
+              )
+            )
+            then excluded.amount
+          else tax_review_payments.amount
+        end,
+        status = case
+          when tax_review_payments.status = 'failed' then 'pending'
+          else tax_review_payments.status
+        end,
+        stripe_checkout_session_id = case
+          when tax_review_payments.status = 'failed'
+            or tax_review_payments.checkout_expires_at <= now() then null
+          else tax_review_payments.stripe_checkout_session_id
+        end,
+        stripe_payment_intent_id = case
+          when tax_review_payments.status = 'failed'
+            or tax_review_payments.checkout_expires_at <= now() then null
+          else tax_review_payments.stripe_payment_intent_id
+        end,
+        checkout_url = case
+          when tax_review_payments.status = 'failed'
+            or tax_review_payments.checkout_expires_at <= now() then null
+          else tax_review_payments.checkout_url
+        end,
+        checkout_expires_at = case
+          when tax_review_payments.status = 'failed'
+            or tax_review_payments.checkout_expires_at <= now() then null
+          else tax_review_payments.checkout_expires_at
+        end,
+        failed_at = case
+          when tax_review_payments.status = 'failed' then null
+          else tax_review_payments.failed_at
+        end,
+        updated_at = now()
+    `;
+    await transaction`
+      update review_requests
+      set status = 'awaiting_payment', updated_at = now()
+      where id = ${input.reviewRequestId} and status = 'draft'
+    `;
+    const rows = await transaction`
+      select p.*, u.line_user_id, r.question_summary
+      from tax_review_payments p
+      join users u on u.id = p.user_id
+      join review_requests r on r.id = p.review_request_id
+      where p.review_request_id = ${input.reviewRequestId}
+    `;
+    return toTaxReviewPayment(rows[0]);
+  });
+}
+
+export async function attachTaxReviewCheckout(input: {
+  paymentId: string;
+  checkoutSessionId: string;
+  checkoutUrl: string;
+  checkoutExpiresAt: string;
+}): Promise<void> {
+  const sql = database();
+  const rows = await sql`
+    update tax_review_payments
+    set stripe_checkout_session_id = ${input.checkoutSessionId},
+      checkout_url = ${input.checkoutUrl},
+      checkout_expires_at = ${input.checkoutExpiresAt},
+      updated_at = now()
+    where id = ${input.paymentId} and status = 'pending'
+    returning id
+  `;
+  if (!rows[0]) throw new Error("Tax review payment is not pending");
+}
+
+export async function markTaxReviewPaymentPaid(input: {
+  paymentId: string;
+  lineUserId: string;
+  reviewRequestId: string;
+  checkoutSessionId: string;
+  paymentIntentId: string | null;
+  amount: number;
+  currency: string;
+}): Promise<TaxReviewPayment> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction`
+      select p.*, u.line_user_id, r.question_summary
+      from tax_review_payments p
+      join users u on u.id = p.user_id
+      join review_requests r on r.id = p.review_request_id
+      where p.id = ${input.paymentId}
+      for update
+    `;
+    const payment = rows[0];
+    if (!payment) throw new Error("Tax review payment not found");
+    if (
+      String(payment.line_user_id) !== input.lineUserId ||
+      String(payment.review_request_id) !== input.reviewRequestId
+    ) {
+      throw new Error("Tax review payment identity does not match");
+    }
+    if (
+      Number(payment.amount) !== input.amount ||
+      String(payment.currency) !== input.currency.toLowerCase()
+    ) {
+      throw new Error("Stripe payment amount or currency does not match");
+    }
+    if (String(payment.status) === "refunded") {
+      throw new Error("Refunded tax review payment cannot be consumed");
+    }
+    await transaction`
+      update tax_review_payments
+      set status = case when status = 'consumed' then status else 'paid' end,
+        stripe_checkout_session_id = ${input.checkoutSessionId},
+        stripe_payment_intent_id = coalesce(
+          ${input.paymentIntentId},
+          stripe_payment_intent_id
+        ),
+        paid_at = coalesce(paid_at, now()),
+        updated_at = now()
+      where id = ${input.paymentId}
+    `;
+    const updated = await transaction`
+      select p.*, u.line_user_id, r.question_summary
+      from tax_review_payments p
+      join users u on u.id = p.user_id
+      join review_requests r on r.id = p.review_request_id
+      where p.id = ${input.paymentId}
+    `;
+    return toTaxReviewPayment(updated[0]);
+  });
+}
+
+export async function completePaidTaxReview(paymentId: string): Promise<boolean> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction`
+      select p.id, p.status, p.review_request_id
+      from tax_review_payments p
+      where p.id = ${paymentId}
+      for update
+    `;
+    const payment = rows[0];
+    if (!payment) throw new Error("Tax review payment not found");
+    if (String(payment.status) === "consumed") return false;
+    if (String(payment.status) !== "paid") {
+      throw new Error("Tax review payment is not paid");
+    }
+    await transaction`
+      update review_requests
+      set status = 'submitted', submitted_at = coalesce(submitted_at, now()),
+        updated_at = now()
+      where id = ${String(payment.review_request_id)}
+        and status = 'awaiting_payment'
+    `;
+    await transaction`
+      update tax_review_payments
+      set status = 'consumed', consumed_at = now(), updated_at = now()
+      where id = ${paymentId} and status = 'paid'
+    `;
+    return true;
+  });
+}
+
+export async function markTaxReviewPaymentFailed(
+  checkoutSessionId: string,
+): Promise<void> {
+  const sql = database();
+  await sql`
+    update tax_review_payments
+    set status = 'failed', failed_at = now(), updated_at = now()
+    where stripe_checkout_session_id = ${checkoutSessionId}
+      and status = 'pending'
+  `;
 }
 
 /**

@@ -3,7 +3,7 @@ export const PLAN_CONFIG = {
     code: "free",
     name: "無料会員",
     monthlyPrice: 0,
-    aiLimit: 10,
+    aiLimit: 100,
     taxReviewLimit: 0,
     active: true,
   },

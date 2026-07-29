@@ -64,9 +64,9 @@ test("料金の質問には固定された料金表を返す", () => {
   assert.equal(isPricingInquiry("AI使い放題はいくらですか？"), true);
   assert.equal(isPricingInquiry("料金を教えて"), true);
   assert.equal(isPricingInquiry("この取引の税金はいくらですか？"), false);
-  assert.match(TAX_AI_PRICING_MESSAGE, /無料会員：月額0円/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /あんしん会員：月額3,300円/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /税理士相談1件／1契約期間/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /基本無料：毎月100件まで/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /テスト期間価格：1回1,000円（税込）/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /2027年1月1日以降：1回3,000円（税込）/);
 });
 
 test("税理士相談への回答は回答主体を明示し、AI回答と区別できる", () => {
@@ -105,11 +105,11 @@ test("AI回答と税理士回答の目印が互いに衝突しない", () => {
 
 test("料金案内は決済が発生しないことを明示する", () => {
   assert.match(TAX_AI_PRICING_MESSAGE, /※このメッセージでは決済は発生しません。/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /次回更新日にリセットされます/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /月額料金や自動更新はありません/);
 });
 
 test("決済前の案内は金額・自動更新・完了通知・二重申込防止を伝える", () => {
-  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /月額3,300円（税込）／自動更新/);
+  assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /相談1回分のみ（自動更新なし）/);
   assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /カード情報は当法人では保持しません/);
   assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /完了メッセージが届きます/);
   assert.match(TAX_AI_CHECKOUT_INTRO_MESSAGE, /もう一度お申し込みボタンを押さないでください/);
@@ -255,5 +255,6 @@ test("回答本文に公式根拠を補い、個別判断には有料確認の�
   assert.match(review, /【税理士相談のご案内】/);
   assert.match(review, /回答下のボタン/);
   assert.doesNotMatch(review, /税理士確認を依頼/);
-  assert.match(review, /月額3,300円/);
+  assert.match(review, /1回1,000円/);
+  assert.match(review, /2027年1月1日以降は1回3,000円/);
 });

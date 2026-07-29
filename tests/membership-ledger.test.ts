@@ -11,16 +11,16 @@ test("初回利用者は無料会員として登録される", () => {
   assert.equal(ledger.ensureUser("U1").planCode, "free");
 });
 
-test("無料会員は月10回まで利用でき、11回目は拒否される", async () => {
+test("無料会員は月100回まで利用でき、101回目は拒否される", async () => {
   const ledger = new MemoryMembershipLedger();
-  for (let index = 0; index < 10; index += 1) {
+  for (let index = 0; index < 100; index += 1) {
     const reservation = await ledger.reserve("U1", "ai_answer", `answer-${index}`);
     assert.equal(reservation.allowed, true);
     ledger.transition(reservation.usageEventId!, "consumed");
   }
-  const eleventh = await ledger.reserve("U1", "ai_answer", "answer-11");
-  assert.equal(eleventh.allowed, false);
-  assert.equal(ledger.consumed("U1", "ai_answer"), 10);
+  const extra = await ledger.reserve("U1", "ai_answer", "answer-101");
+  assert.equal(extra.allowed, false);
+  assert.equal(ledger.consumed("U1", "ai_answer"), 100);
 });
 
 test("あんしん会員は1契約期間につき100回利用できる", async () => {
@@ -66,11 +66,11 @@ test("LINE送信失敗時は予約を取り消す", async () => {
 test("同時質問でも無料上限を超えない", async () => {
   const ledger = new MemoryMembershipLedger();
   const reservations = await Promise.all(
-    Array.from({ length: 30 }, (_, index) =>
+    Array.from({ length: 130 }, (_, index) =>
       ledger.reserve("U1", "ai_answer", `parallel-${index}`),
     ),
   );
-  assert.equal(reservations.filter((item) => item.allowed).length, 10);
+  assert.equal(reservations.filter((item) => item.allowed).length, 100);
 });
 
 test("Webhook再送は二重処理されない", () => {

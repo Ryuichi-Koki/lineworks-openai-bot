@@ -48,3 +48,24 @@ export type MembershipSync = {
   periodStart: string;
   periodEnd: string;
 };
+
+export type TaxReviewPaymentStatus =
+  | "pending"
+  | "paid"
+  | "consumed"
+  | "failed"
+  | "refunded";
+
+export type TaxReviewPayment = {
+  id: string;
+  reviewRequestId: string;
+  lineUserId: string;
+  questionSummary: string;
+  priceCode: "promo_2026" | "standard";
+  amount: number;
+  currency: "jpy";
+  status: TaxReviewPaymentStatus;
+  checkoutSessionId: string | null;
+  checkoutUrl: string | null;
+  checkoutExpiresAt: string | null;
+};

@@ -19,6 +19,8 @@
     "setup:postgres:local": "node scripts/setup-local-postgres.mjs",
     "setup:stripe:portal:sandbox": "node scripts/setup-stripe-portal-sandbox.mjs",
     "setup:stripe:sandbox": "node scripts/setup-stripe-sandbox.mjs",
+    "setup:stripe:tax-review:sandbox": "node scripts/setup-stripe-tax-review-sandbox.mjs",
+    "test:stripe:tax-review:sandbox": "node --experimental-strip-types scripts/test-tax-review-checkout-sandbox.mjs",
     "setup:line:rich-menu": "node scripts/setup-line-rich-menu.mjs",
     "setup:line:webhook:test": "node scripts/setup-line-webhook-test.mjs",
     "eval:tax": "node --experimental-strip-types scripts/eval-tax-answers.ts"

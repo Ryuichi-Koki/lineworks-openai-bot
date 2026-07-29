@@ -4,8 +4,6 @@ import {
   appendAuditRecord,
   appendConversationMessage,
   createApproval,
-  createConsultation,
-  deleteConsultation,
   getClientProfile,
   getConversationHistory,
   transitionApproval,
@@ -63,7 +61,6 @@ import {
 } from "@/lib/membership/store";
 import {
   sendStaffApprovalMessage,
-  sendStaffConsultationMessage,
 } from "@/lib/lineworks/client";
 import { generateReplyDraft } from "@/lib/openai/generateReplyDraft";
 import { redactSensitiveText } from "@/lib/security/redaction";
@@ -71,7 +68,6 @@ import { isClarificationOnly } from "@/lib/tax/policy";
 import {
   AI_ANSWER_PROCESSING_MESSAGE,
   buildCustomerReply,
-  buildReviewRequestReceipt,
   buildTaxReviewIntakePrompt,
   isMembershipCancellationInquiry,
   isPricingInquiry,
@@ -82,11 +78,17 @@ import {
   TAX_AI_PRICING_MESSAGE,
   TAX_AI_QUESTION_GUIDE_MESSAGE,
 } from "@/lib/tax/hybridService";
+import { dispatchTaxProfessionalReview } from "@/lib/tax/consultationService";
 import {
   createCustomerPortalSession,
   createSubscriptionCheckoutSession,
+  createTaxReviewCheckoutSession,
 } from "@/lib/stripe/billing";
 import { stripeBillingEnabled } from "@/lib/stripe/config";
+import {
+  oneTimeConsultationBillingEnabled,
+  taxReviewPriceAt,
+} from "@/lib/stripe/consultationPricing";
 
 export const runtime = "nodejs";
 
@@ -436,7 +438,8 @@ async function showMembershipStatusSummary(userId: string): Promise<void> {
   await ensureMembershipUser(userId);
   const summary = await getUsageSummary(userId);
   await pushLineMessage(userId, buildStatusMessage(summary), randomUUID(), {
-    includeMembershipApplyButton: summary.planCode === "free",
+    includeMembershipApplyButton:
+      summary.planCode === "free" && !oneTimeConsultationBillingEnabled(),
   });
 }
 
@@ -445,6 +448,10 @@ async function showMembershipStatusSummary(userId: string): Promise<void> {
  * 決済ページは「あんしん会員に申し込む」を押した後（select_paid_membership）に初めて作成する。
  */
 async function showPricingInfo(userId: string): Promise<void> {
+  if (oneTimeConsultationBillingEnabled()) {
+    await pushLineMessage(userId, TAX_AI_PRICING_MESSAGE, randomUUID());
+    return;
+  }
   const alreadyPaid = await hasActivePaidSubscription(userId);
   await pushLineMessage(userId, TAX_AI_PRICING_MESSAGE, randomUUID(), {
     includeMembershipApplyButton: !alreadyPaid,
@@ -542,61 +549,15 @@ async function handleMembershipEvent(event: {
   await syncMembership(membership);
 }
 
-async function notifyTaxProfessionalReview(
-  event: { eventId: string; userId: string },
-  conversationHistory: Awaited<ReturnType<typeof getConversationHistory>>,
-  customerText: string,
-): Promise<void> {
-  const id = createHash("sha256").update(event.eventId).digest("hex").slice(0, 32);
-  const now = new Date().toISOString();
-  const recentContext = conversationHistory
-    .slice(-6)
-    .map((message) => `${message.role === "customer" ? "顧客" : "AI"}: ${message.text}`)
-    .join("\n\n");
-
-  const consultation = {
-    id,
-    lineUserId: event.userId,
-    staffContext: [
-      `LINE利用者: ${createHash("sha256").update(event.userId).digest("hex").slice(0, 12)}`,
-      "",
-      redactSensitiveText(recentContext || customerText).slice(0, 1600),
-    ].join("\n"),
-    status: "waiting_reply" as const,
-    lineRetryKey: randomUUID(),
-    createdAt: now,
-    updatedAt: now,
-  };
-  if (!(await createConsultation(consultation))) return;
-
-  try {
-    await sendStaffConsultationMessage(consultation);
-    const receipt = buildReviewRequestReceipt();
-    await pushLineMessage(event.userId, receipt, randomUUID());
-    await Promise.all([
-      appendConversationMessage(event.userId, {
-        role: "customer",
-        text: customerText,
-        createdAt: now,
-      }),
-      appendConversationMessage(event.userId, {
-        role: "assistant",
-        text: receipt,
-        createdAt: now,
-      }),
-    ]);
-  } catch (error) {
-    await deleteConsultation(id);
-    throw error;
-  }
-}
-
 async function startTaxProfessionalReview(event: {
   eventId: string;
   userId: string;
 }): Promise<void> {
   const summary = await getUsageSummary(event.userId);
-  if (summary.taxReviewRemaining < 1) {
+  if (
+    summary.taxReviewRemaining < 1 &&
+    !oneTimeConsultationBillingEnabled()
+  ) {
     const message =
       summary.planCode === "free"
         ? "税理士相談は、あんしん会員でご利用いただけます。"
@@ -625,7 +586,11 @@ async function startTaxProfessionalReview(event: {
     safeQuestionSummary,
     reviewRequestId,
     randomUUID(),
-    { taxReviewRemaining: summary.taxReviewRemaining },
+    {
+      taxReviewRemaining: summary.taxReviewRemaining,
+      requiresPayment: summary.taxReviewRemaining < 1,
+      paymentAmount: taxReviewPriceAt().amount,
+    },
   );
 }
 
@@ -633,7 +598,10 @@ async function startTaxProfessionalReviewIntake(event: {
   userId: string;
 }): Promise<void> {
   const summary = await getUsageSummary(event.userId);
-  if (summary.taxReviewRemaining < 1) {
+  if (
+    summary.taxReviewRemaining < 1 &&
+    !oneTimeConsultationBillingEnabled()
+  ) {
     const message =
       summary.planCode === "free"
         ? "税理士への個別相談は、あんしん会員でご利用いただけます。"
@@ -668,7 +636,11 @@ async function confirmTaxReviewIntake(
     safeCustomerText,
     reviewRequestId,
     randomUUID(),
-    { taxReviewRemaining: summary.taxReviewRemaining },
+    {
+      taxReviewRemaining: summary.taxReviewRemaining,
+      requiresPayment: summary.taxReviewRemaining < 1,
+      paymentAmount: taxReviewPriceAt().amount,
+    },
   );
   await appendConversationMessage(event.userId, {
     role: "customer",
@@ -682,6 +654,43 @@ async function submitTaxProfessionalReview(event: {
   userId: string;
   reviewRequestId: string;
 }): Promise<void> {
+  const summary = await getUsageSummary(event.userId);
+  if (
+    summary.taxReviewRemaining < 1 &&
+    oneTimeConsultationBillingEnabled()
+  ) {
+    try {
+      const checkout = await createTaxReviewCheckoutSession({
+        lineUserId: event.userId,
+        reviewRequestId: event.reviewRequestId,
+      });
+      await pushLineMessage(
+        event.userId,
+        checkout.reused
+          ? "先ほど作成した税理士相談の決済画面をご案内します。二重請求は発生しません。"
+          : TAX_AI_CHECKOUT_INTRO_MESSAGE,
+        randomUUID(),
+        {
+          includeTaxReviewPaymentButton: true,
+          taxReviewPaymentUrl: checkout.url,
+          taxReviewPaymentAmount: checkout.amount,
+        },
+      );
+    } catch (error) {
+      console.error("Tax review Checkout creation failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+      await notifyUserOfFailure(
+        event.userId,
+        [
+          "税理士相談の決済ページを作成できませんでした。",
+          "ご請求は発生していません。時間をおいて、もう一度お試しください。",
+        ].join("\n"),
+      );
+    }
+    return;
+  }
   const reservation = await submitReviewRequest({
     lineUserId: event.userId,
     reviewRequestId: event.reviewRequestId,
@@ -695,13 +704,12 @@ async function submitTaxProfessionalReview(event: {
     );
     return;
   }
-  const history = await getConversationHistory(event.userId);
   try {
-    await notifyTaxProfessionalReview(
-      event,
-      history,
-      "税理士相談依頼（内容確認済み）",
-    );
+    await dispatchTaxProfessionalReview({
+      eventId: event.eventId,
+      userId: event.userId,
+      customerText: "税理士相談依頼（内容確認済み）",
+    });
     await completeReviewRequest(
       event.userId,
       event.reviewRequestId,
@@ -817,7 +825,7 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     if (registration.isNew) {
       await showMembershipMenu(
         event.userId,
-        "ご登録ありがとうございます。無料会員または有料のあんしん会員を選択できます。",
+        "ご登録ありがとうございます。AI回答を毎月100件まで無料でご利用いただけます。",
       );
     }
   }
@@ -918,7 +926,9 @@ async function processTextEvent(event: ReturnType<typeof getTextEvent>): Promise
     : null;
   if (reservation && !reservation.allowed) {
     await pushLineMessage(event.userId, buildLimitMessage(reservation), randomUUID(), {
-      includeMembershipApplyButton: reservation.planCode === "free",
+      includeMembershipApplyButton:
+        reservation.planCode === "free" &&
+        !oneTimeConsultationBillingEnabled(),
     });
     return;
   }
@@ -1202,7 +1212,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             }
             await showMembershipMenu(
               accepted.event.userId,
-              "友だち追加ありがとうございます。無料会員または有料のあんしん会員を選択してください。",
+              "友だち追加ありがとうございます。AI回答は毎月100件まで無料です。",
             );
           }
         } else if (accepted.kind === "legal_acceptance") {
@@ -1252,7 +1262,7 @@ export async function POST(request: Request): Promise<NextResponse> {
                 : registration.isNew
                   ? [
                       "無料会員として登録しました。",
-                      "AI回答を毎月10回までご利用いただけます。",
+                      "AI回答を毎月100件までご利用いただけます。",
                       "",
                       "さっそくご質問をどうぞ。このトークにそのままお送りください。",
                       "",
@@ -1297,6 +1307,13 @@ export async function POST(request: Request): Promise<NextResponse> {
             ))
           ) {
             await showLegalConsentPrompt(accepted.event.userId);
+          } else if (oneTimeConsultationBillingEnabled()) {
+            await registerMembershipUser(accepted.event.userId);
+            await pushLineMessage(
+              accepted.event.userId,
+              `${TAX_AI_PRICING_MESSAGE}\n\n税理士相談をご希望の場合は、リッチメニューの「税理士相談」から相談内容を入力してください。`,
+              randomUUID(),
+            );
           } else {
             const registration = await registerMembershipUser(
               accepted.event.userId,
@@ -1379,14 +1396,11 @@ export async function POST(request: Request): Promise<NextResponse> {
             if (membershipBillingEnabled()) {
               await startTaxProfessionalReview(accepted.event);
             } else {
-              const conversationHistory = await getConversationHistory(
-                accepted.event.userId,
-              );
-              await notifyTaxProfessionalReview(
-                accepted.event,
-                conversationHistory,
-                "税理士へ個別相談（ボタン）",
-              );
+              await dispatchTaxProfessionalReview({
+                eventId: accepted.event.eventId,
+                userId: accepted.event.userId,
+                customerText: "税理士へ個別相談（ボタン）",
+              });
             }
           } else if (
             accepted.event.action === "submit" &&
@@ -1401,11 +1415,17 @@ export async function POST(request: Request): Promise<NextResponse> {
             accepted.event.reviewRequestId
           ) {
             // 下書きを取り消して入力受付をやり直す。枠は submit 時点まで予約しないため消費しない。
-            await cancelReviewRequest(
+            const canceled = await cancelReviewRequest(
               accepted.event.userId,
               accepted.event.reviewRequestId,
             );
-            if (membershipBillingEnabled()) {
+            if (!canceled) {
+              await pushLineMessage(
+                accepted.event.userId,
+                "すでに決済手続きへ進んでいるため、この画面からは入力し直せません。未決済の場合はStripe画面を閉じ、30分後にもう一度［税理士相談］からお試しください。",
+                randomUUID(),
+              );
+            } else if (membershipBillingEnabled()) {
               await startTaxProfessionalReviewIntake(accepted.event);
             } else {
               await pushLineMessage(
@@ -1415,13 +1435,15 @@ export async function POST(request: Request): Promise<NextResponse> {
               );
             }
           } else if (accepted.event.reviewRequestId) {
-            await cancelReviewRequest(
+            const canceled = await cancelReviewRequest(
               accepted.event.userId,
               accepted.event.reviewRequestId,
             );
             await pushLineMessage(
               accepted.event.userId,
-              "税理士相談の依頼をキャンセルしました。相談枠は消費していません。",
+              canceled
+                ? "税理士相談の依頼をキャンセルしました。相談枠は消費していません。"
+                : "すでに決済手続きへ進んでいるため、この画面からはキャンセルできません。未決済の場合はStripe画面を閉じれば請求は発生しません。",
               randomUUID(),
             );
           }

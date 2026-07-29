@@ -525,7 +525,7 @@ test("LINEから規約4ページを確認し、チェック式で明示同意で
   assert.match(String(consentTemplate.text), /同意した記録を保存します/);
 });
 
-test("規約等への同意後に無料会員か有料会員を選択できる", async () => {
+test("規約等への同意後に無料利用開始か料金確認を選択できる", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   let requestBody: unknown;
@@ -561,7 +561,7 @@ test("規約等への同意後に無料会員か有料会員を選択できる",
   assert.match(selectionTemplate.text ?? "", /☑ 規約等への同意を記録/);
   assert.deepEqual(
     selectionTemplate.actions?.map((action) => action.label),
-    ["無料会員を選ぶ", "有料会員を選ぶ"],
+    ["無料で始める", "料金を確認する"],
   );
   assert.equal(
     selectionTemplate.actions?.[0]?.data,
@@ -569,7 +569,7 @@ test("規約等への同意後に無料会員か有料会員を選択できる",
   );
   assert.equal(
     selectionTemplate.actions?.[1]?.data,
-    "action=select_paid_membership",
+    "action=show_pricing",
   );
 });
 
@@ -607,6 +607,75 @@ test("料金案内には指定されたStripe Checkout URLだけを登録ボタ�
   assert.equal(
     template.actions?.[0]?.uri,
     "https://checkout.stripe.com/c/pay/test-session",
+  );
+});
+
+test("税理士相談の確認画面は決済前であることと1回分の金額を示す", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response("", { status: 200 });
+  };
+  try {
+    await pushLineReviewConfirmation(
+      "U-payment-confirm",
+      "消費税の課税区分を確認したい",
+      "review-payment-1",
+      randomUUID(),
+      {
+        taxReviewRemaining: 0,
+        requiresPayment: true,
+        paymentAmount: 1000,
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+  }
+  const messages = (requestBody as { messages: Array<Record<string, unknown>> })
+    .messages;
+  const template = messages.at(-1)?.template as {
+    text?: string;
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.match(template.text ?? "", /1,000円（税込）/);
+  assert.match(template.text ?? "", /このボタンではまだ請求されません/);
+  assert.equal(template.actions?.[0]?.data, "action=submit_tax_review&id=review-payment-1");
+});
+
+test("税理士相談の都度決済ボタンは指定URL・金額・自動更新なしを示す", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  let requestBody: unknown;
+  process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return new Response("", { status: 200 });
+  };
+  try {
+    await pushLineMessage("U-payment", "お支払いへ進みます。", randomUUID(), {
+      includeTaxReviewPaymentButton: true,
+      taxReviewPaymentUrl: "https://checkout.stripe.com/c/pay/test-tax-review",
+      taxReviewPaymentAmount: 1000,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+  }
+  const messages = (requestBody as { messages: Array<Record<string, unknown>> })
+    .messages;
+  const template = messages.at(-1)?.template as {
+    text?: string;
+    actions?: Array<Record<string, unknown>>;
+  };
+  assert.match(template.text ?? "", /1,000円（税込）/);
+  assert.match(template.text ?? "", /自動更新はありません/);
+  assert.equal(
+    template.actions?.[0]?.uri,
+    "https://checkout.stripe.com/c/pay/test-tax-review",
   );
 });
 
