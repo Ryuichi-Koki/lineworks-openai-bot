@@ -89,7 +89,7 @@ function cell(column, row) {
 export const richMenuDefinition = {
   size: { width: 2500, height: 1686 },
   selected: true,
-  name: "ApexBrain 会員メニュー",
+  name: "スグ税 会員メニュー",
   chatBarText: "メニュー",
   // すべてpostback。message actionは利用者の発言として残るため使わない
   // （「契約管理」を押しただけで「退会したい」と発言した扱いになるのを防ぐ）。
