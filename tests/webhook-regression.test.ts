@@ -646,11 +646,13 @@ test("税理士相談の確認画面は決済前であることと1回分の金�
   assert.equal(template.actions?.[0]?.data, "action=submit_tax_review&id=review-payment-1");
 });
 
-test("税理士相談の都度決済ボタンは指定URL・金額・自動更新なしを示す", async () => {
+test("税理士相談の都度決済ボタンは金額・提供開始・自動更新・返金条件を示す", async () => {
   const originalFetch = globalThis.fetch;
   const originalToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const originalLegalBaseUrl = process.env.LEGAL_APP_BASE_URL;
   let requestBody: unknown;
   process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
+  process.env.LEGAL_APP_BASE_URL = "https://bot.abtax.jp";
   globalThis.fetch = async (_input, init) => {
     requestBody = JSON.parse(String(init?.body));
     return new Response("", { status: 200 });
@@ -664,6 +666,11 @@ test("税理士相談の都度決済ボタンは指定URL・金額・自動更�
   } finally {
     globalThis.fetch = originalFetch;
     process.env.LINE_CHANNEL_ACCESS_TOKEN = originalToken;
+    if (originalLegalBaseUrl === undefined) {
+      delete process.env.LEGAL_APP_BASE_URL;
+    } else {
+      process.env.LEGAL_APP_BASE_URL = originalLegalBaseUrl;
+    }
   }
   const messages = (requestBody as { messages: Array<Record<string, unknown>> })
     .messages;
@@ -672,11 +679,14 @@ test("税理士相談の都度決済ボタンは指定URL・金額・自動更�
     actions?: Array<Record<string, unknown>>;
   };
   assert.match(template.text ?? "", /1,000円（税込）/);
+  assert.match(template.text ?? "", /支払完了後に受付を開始/);
   assert.match(template.text ?? "", /自動更新はありません/);
+  assert.match(template.text ?? "", /返金条件は特商法表記/);
   assert.equal(
     template.actions?.[0]?.uri,
     "https://checkout.stripe.com/c/pay/test-tax-review",
   );
+  assert.equal(template.actions?.[1]?.uri, "https://bot.abtax.jp/tokusho");
 });
 
 test("LINE APIの差し替えはローカルテストURLだけを許可する", () => {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type Stripe from "stripe";
+import { legalDocumentUrl } from "../legal/config.ts";
 import type { PlanCode } from "../membership/plans.ts";
 import {
   attachTaxReviewCheckout,
@@ -195,8 +196,11 @@ export async function createTaxReviewCheckoutSession(input: {
   });
   // Stripeは作成時点から最低30分後を要求する。API往復中に下回らないよう31分にする。
   const expiresAt = Math.floor(now.getTime() / 1000) + 31 * 60;
+  const termsUrl = legalDocumentUrl("terms");
+  const tokushoUrl = legalDocumentUrl("tokusho");
   const params: Stripe.Checkout.SessionCreateParams = {
     mode: "payment",
+    submit_type: "pay",
     locale: "ja",
     client_reference_id: input.lineUserId,
     line_items: [{ price: priceId, quantity: 1 }],
@@ -208,6 +212,16 @@ export async function createTaxReviewCheckoutSession(input: {
     tax_id_collection: { enabled: true },
     metadata,
     payment_intent_data: { metadata },
+    custom_text: {
+      submit: {
+        message: [
+          "決済完了後に税理士相談の受付を開始します。",
+          "相談1回ごとの都度払いで、自動更新はありません。",
+          `利用規約: ${termsUrl}`,
+          `返金条件・特定商取引法に基づく表記: ${tokushoUrl}`,
+        ].join("\n"),
+      },
+    },
     expires_at: expiresAt,
     success_url: `${stripeAppBaseUrl()}/billing/success?purchase=tax_review&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${stripeAppBaseUrl()}/billing/cancel?purchase=tax_review`,

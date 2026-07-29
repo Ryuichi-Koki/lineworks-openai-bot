@@ -23,19 +23,23 @@ function allText(blocks: LegalBlock[]): string {
     .join("\n");
 }
 
-test("2026年7月24日版の正式名称と施行情報を表示する", () => {
+test("2026年7月30日改定案の正式名称と改定状態を表示する", () => {
   assert.equal(termsDocument.title, "Tax Hot Line利用規約");
   assert.equal(termsDocument.enactedOn, "2026年7月24日");
-  assert.equal(privacyDocument.revisedOn, "2026年7月24日");
+  assert.equal(termsDocument.revisedOn, "2026年7月30日（改定案）");
+  assert.equal(privacyDocument.revisedOn, "2026年7月30日（改定案）");
   assert.equal(tokushoDocument.office, "Apex Brain税理士法人 沖縄事務所");
 });
 
-test("利用規約に料金・自動更新・解約・LINEブロック注意を保持する", () => {
+test("利用規約に無料100件・都度課金・決済前確認・経過措置を定める", () => {
   const text = allText(termsDocument.blocks);
-  assert.match(text, /月額3,300円（税込）/);
-  assert.match(text, /1か月ごとに自動更新/);
-  assert.match(text, /次回決済日の前日まで/);
-  assert.match(text, /ブロック又は友だち登録解除のみでは解約となりません/);
+  assert.match(text, /月100件まで無料/);
+  assert.match(text, /1回3,000円（税込）/);
+  assert.match(text, /2026年12月31日まで.*1回1,000円（税込）/);
+  assert.match(text, /月額料金又は自動更新はありません/);
+  assert.match(text, /確認ボタンを押しただけでは料金は発生しません/);
+  assert.match(text, /従前の利用条件を適用/);
+  assert.doesNotMatch(text, /月額利用料金は月額3,300円/);
 });
 
 test("プライバシーポリシーに主要委託先と外国移転・Cookie情報を保持する", () => {
@@ -55,10 +59,13 @@ test("プライバシーポリシーに主要委託先と外国移転・Cookie�
   assert.match(text, /Stripe Checkout・Customer Portal/);
 });
 
-test("特商法表記に無料・有料プラン、追加料金、メール解約、返金条件を保持する", () => {
+test("特商法表記に無料100件・相談価格・都度契約・返金条件を表示する", () => {
   const text = allText(tokushoDocument.blocks);
-  assert.match(text, /無料会員：無料/);
-  assert.match(text, /月額上限超過相談：1件3,300円（税込）/);
+  assert.match(text, /AI回答：無料（月100件まで）/);
+  assert.match(text, /税理士へのLINE個別相談：1回3,000円（税込）/);
+  assert.match(text, /テスト期間価格：1回1,000円（税込、2026年12月31日まで/);
+  assert.match(text, /月額料金及び自動更新はありません/);
   assert.match(text, /info@abtax.jp宛てのメール/);
-  assert.match(text, /日割返金は行いません/);
+  assert.match(text, /決済画面を閉じることで申込みを中止/);
+  assert.match(text, /重複決済/);
 });

@@ -110,12 +110,17 @@ export async function pushLineMessage(
       altText: "税理士相談のお支払いへ進む",
       template: {
         type: "buttons",
-        text: `相談1回分 ${Number(amount).toLocaleString("ja-JP")}円（税込）をStripeの安全な決済画面でお支払いください。自動更新はありません。`,
+        text: `相談1回分 ${Number(amount).toLocaleString("ja-JP")}円（税込）。支払完了後に受付を開始します。都度払いで自動更新はありません。返金条件は特商法表記をご確認ください。`,
         actions: [
           {
             type: "uri",
             label: "1回分を支払う",
             uri: taxReviewPaymentUrl,
+          },
+          {
+            type: "uri",
+            label: "特商法表記を確認",
+            uri: legalDocumentUrl("tokusho"),
           },
         ],
       },
