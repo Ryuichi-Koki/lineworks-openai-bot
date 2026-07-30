@@ -1,4 +1,8 @@
 import type { ReplyDraft } from "../openai/generateReplyDraft.ts";
+import {
+  TAX_REVIEW_PROMO_PRICE_JPY,
+  TAX_REVIEW_STANDARD_PRICE_JPY,
+} from "../stripe/consultationPricing.ts";
 
 export const TAX_AI_PRICING_MESSAGE = [
   "【料金】",
@@ -7,9 +11,9 @@ export const TAX_AI_PRICING_MESSAGE = [
   "　・基本無料：毎月100件まで",
   "",
   "■ 税理士へのLINE個別相談",
-  "　・テスト期間価格：1回1,000円（税込）",
+  `　・テスト期間価格：1回${TAX_REVIEW_PROMO_PRICE_JPY.toLocaleString("ja-JP")}円（税込）`,
   "　・適用期限：2026年12月31日まで",
-  "　・2027年1月1日以降：1回3,000円（税込）",
+  `　・2027年1月1日以降：1回${TAX_REVIEW_STANDARD_PRICE_JPY.toLocaleString("ja-JP")}円（税込）`,
   "",
   "相談内容を確認した後、1回分をStripe（クレジットカード）でお支払いいただきます。",
   "月額料金や自動更新はありません。",
@@ -215,7 +219,7 @@ export function buildCustomerReply(draft: ReplyDraft): string {
         "【税理士相談のご案内】",
         "このご相談は個別事情によって結論が変わるため、税理士への相談が必要とAIが判定しました。",
         "税理士への個別相談をおすすめします。ご希望の場合は、回答下のボタンを押してください。",
-        "税理士へのLINE個別相談：1回1,000円（税込、2026年12月31日まで）。2027年1月1日以降は1回3,000円（税込）です。",
+        `税理士へのLINE個別相談：1回${TAX_REVIEW_PROMO_PRICE_JPY.toLocaleString("ja-JP")}円（税込、2026年12月31日まで）。2027年1月1日以降は1回${TAX_REVIEW_STANDARD_PRICE_JPY.toLocaleString("ja-JP")}円（税込）です。`,
       ].join("\n"),
     );
   }

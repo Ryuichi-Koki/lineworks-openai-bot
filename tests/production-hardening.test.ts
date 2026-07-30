@@ -10,18 +10,18 @@ function refund(
   return {
     refundId: "re_test",
     lineUserId: "U-test",
-    amount: 1000,
+    amount: 1100,
     currency: "jpy",
     refundStatus: "succeeded",
-    paymentAmount: 1000,
-    refundedAmount: 1000,
+    paymentAmount: 1100,
+    refundedAmount: 1100,
     paymentStatus: "refunded",
     ...overrides,
   };
 }
 
 test("返金通知は全額・一部・失敗を区別する", () => {
-  assert.match(buildTaxReviewRefundNotification(refund()), /1,000円.*返金が完了/);
+  assert.match(buildTaxReviewRefundNotification(refund()), /1,100円.*返金が完了/);
   assert.match(
     buildTaxReviewRefundNotification(
       refund({

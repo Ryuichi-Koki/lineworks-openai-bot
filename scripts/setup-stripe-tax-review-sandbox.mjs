@@ -47,13 +47,13 @@ const definitions = [
   {
     envName: "STRIPE_PRICE_TAX_REVIEW_PROMO",
     lookupKey: "apexbrain_tax_review_promo_2026_jpy",
-    amount: 1000,
+    amount: 1100,
     priceCode: "promo_2026",
   },
   {
     envName: "STRIPE_PRICE_TAX_REVIEW_STANDARD",
     lookupKey: "apexbrain_tax_review_standard_jpy",
-    amount: 3000,
+    amount: 3300,
     priceCode: "standard",
   },
 ];

@@ -43,7 +43,7 @@ try {
   if (!checkout.url.startsWith("https://checkout.stripe.com/")) {
     throw new Error("Stripe Checkout URL is invalid");
   }
-  if (checkout.amount !== 1000 || checkout.reused) {
+  if (checkout.amount !== 1100 || checkout.reused) {
     throw new Error("Unexpected sandbox Checkout result");
   }
   const rows = await sql`
@@ -58,13 +58,13 @@ try {
   const session = await stripe.checkout.sessions.retrieve(checkoutSessionId);
   if (
     session.mode !== "payment" ||
-    session.amount_total !== 1000 ||
+    session.amount_total !== 1100 ||
     session.currency !== "jpy" ||
     session.metadata?.purchase_type !== "tax_review"
   ) {
     throw new Error("Checkout Session does not match the tax-review contract");
   }
-  console.log("PASS: one-time JPY 1,000 tax-review Checkout was created and verified.");
+  console.log("PASS: one-time JPY 1,100 tax-review Checkout was created and verified.");
 } finally {
   if (checkoutSessionId) {
     try {

@@ -58,12 +58,12 @@ const checks = [
   {
     name: "STRIPE_PRICE_TAX_REVIEW_PROMO",
     ok: (env.STRIPE_PRICE_TAX_REVIEW_PROMO ?? "").startsWith("price_"),
-    requirement: "sandbox one-time JPY 1,000 tax-inclusive Price ID",
+    requirement: "one-time JPY 1,100 tax-inclusive Price ID",
   },
   {
     name: "STRIPE_PRICE_TAX_REVIEW_STANDARD",
     ok: (env.STRIPE_PRICE_TAX_REVIEW_STANDARD ?? "").startsWith("price_"),
-    requirement: "sandbox one-time JPY 3,000 tax-inclusive Price ID",
+    requirement: "one-time JPY 3,300 tax-inclusive Price ID",
   },
   {
     name: "STRIPE_PORTAL_CONFIGURATION_ID",

@@ -34,8 +34,8 @@ test("2026年7月30日改定版の正式名称と改定日を表示する", () =
 test("利用規約に無料100件・都度課金・決済前確認・経過措置を定める", () => {
   const text = allText(termsDocument.blocks);
   assert.match(text, /月100件まで無料/);
-  assert.match(text, /1回3,000円（税込）/);
-  assert.match(text, /2026年12月31日まで.*1回1,000円（税込）/);
+  assert.match(text, /1回3,300円（税込）/);
+  assert.match(text, /2026年12月31日まで.*1回1,100円（税込）/);
   assert.match(text, /月額料金又は自動更新はありません/);
   assert.match(text, /確認ボタンを押しただけでは料金は発生しません/);
   assert.match(text, /従前の利用条件を適用/);
@@ -63,8 +63,8 @@ test("プライバシーポリシーに主要委託先と外国移転・Cookie�
 test("特商法表記に無料100件・相談価格・都度契約・返金条件を表示する", () => {
   const text = allText(tokushoDocument.blocks);
   assert.match(text, /AI回答：無料（月100件まで）/);
-  assert.match(text, /税理士へのLINE個別相談：1回3,000円（税込）/);
-  assert.match(text, /テスト期間価格：1回1,000円（税込、2026年12月31日まで/);
+  assert.match(text, /税理士へのLINE個別相談：1回3,300円（税込）/);
+  assert.match(text, /テスト期間価格：1回1,100円（税込、2026年12月31日まで/);
   assert.match(text, /月額料金及び自動更新はありません/);
   assert.match(text, /info@abtax.jp宛てのメール/);
   assert.match(text, /決済画面を閉じることで申込みを中止/);

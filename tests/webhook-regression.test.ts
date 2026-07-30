@@ -630,7 +630,7 @@ test("税理士相談の確認画面は決済前であることと1回分の金�
       {
         taxReviewRemaining: 0,
         requiresPayment: true,
-        paymentAmount: 1000,
+        paymentAmount: 1100,
       },
     );
   } finally {
@@ -643,7 +643,7 @@ test("税理士相談の確認画面は決済前であることと1回分の金�
     text?: string;
     actions?: Array<Record<string, unknown>>;
   };
-  assert.match(template.text ?? "", /1,000円（税込）/);
+  assert.match(template.text ?? "", /1,100円（税込）/);
   assert.match(template.text ?? "", /このボタンではまだ請求されません/);
   assert.equal(template.actions?.[0]?.data, "action=submit_tax_review&id=review-payment-1");
 });
@@ -663,7 +663,7 @@ test("税理士相談の都度決済ボタンは金額・提供開始・自動�
     await pushLineMessage("U-payment", "お支払いへ進みます。", randomUUID(), {
       includeTaxReviewPaymentButton: true,
       taxReviewPaymentUrl: "https://checkout.stripe.com/c/pay/test-tax-review",
-      taxReviewPaymentAmount: 1000,
+      taxReviewPaymentAmount: 1100,
       taxReviewRequestId: "review-payment-actions",
     });
   } finally {
@@ -681,7 +681,7 @@ test("税理士相談の都度決済ボタンは金額・提供開始・自動�
     text?: string;
     actions?: Array<Record<string, unknown>>;
   };
-  assert.match(template.text ?? "", /1,000円（税込）/);
+  assert.match(template.text ?? "", /1,100円（税込）/);
   assert.match(template.text ?? "", /支払完了後に受付を開始/);
   assert.match(template.text ?? "", /自動更新はありません/);
   assert.match(template.text ?? "", /返金条件は特商法表記/);

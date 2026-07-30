@@ -171,7 +171,7 @@ test("都度課金モードのマイページは基本無料を主表示し旧�
     assert.match(message, /【マイページ】/);
     assert.match(message, /ご利用プラン：基本無料/);
     assert.match(message, /AI回答：月100件まで（今月の残り 87件）/);
-    assert.match(message, /料金：1回1,000円（税込）/);
+    assert.match(message, /料金：1回1,100円（税込）/);
     assert.match(message, /月額料金・自動更新はありません/);
     assert.match(message, /旧月額契約の未使用特典/);
     assert.match(message, /税理士相談：残り1件（利用時の追加決済なし）/);

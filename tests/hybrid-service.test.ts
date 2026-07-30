@@ -65,8 +65,8 @@ test("料金の質問には固定された料金表を返す", () => {
   assert.equal(isPricingInquiry("料金を教えて"), true);
   assert.equal(isPricingInquiry("この取引の税金はいくらですか？"), false);
   assert.match(TAX_AI_PRICING_MESSAGE, /基本無料：毎月100件まで/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /テスト期間価格：1回1,000円（税込）/);
-  assert.match(TAX_AI_PRICING_MESSAGE, /2027年1月1日以降：1回3,000円（税込）/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /テスト期間価格：1回1,100円（税込）/);
+  assert.match(TAX_AI_PRICING_MESSAGE, /2027年1月1日以降：1回3,300円（税込）/);
 });
 
 test("税理士相談への回答は回答主体を明示し、AI回答と区別できる", () => {
@@ -255,6 +255,6 @@ test("回答本文に公式根拠を補い、個別判断には有料確認の�
   assert.match(review, /【税理士相談のご案内】/);
   assert.match(review, /回答下のボタン/);
   assert.doesNotMatch(review, /税理士確認を依頼/);
-  assert.match(review, /1回1,000円/);
-  assert.match(review, /2027年1月1日以降は1回3,000円/);
+  assert.match(review, /1回1,100円/);
+  assert.match(review, /2027年1月1日以降は1回3,300円/);
 });

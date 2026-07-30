@@ -1,5 +1,5 @@
-export const TAX_REVIEW_STANDARD_PRICE_JPY = 3000;
-export const TAX_REVIEW_PROMO_PRICE_JPY = 1000;
+export const TAX_REVIEW_STANDARD_PRICE_JPY = 3300;
+export const TAX_REVIEW_PROMO_PRICE_JPY = 1100;
 
 /**
  * 「今年中」は日本時間の2026年12月31日23:59:59まで。
@@ -52,14 +52,14 @@ export function taxReviewPricingMessage(now = new Date()): string {
   const current = taxReviewPriceAt(now);
   const currentLine =
     current.code === "promo_2026"
-      ? "・テスト期間価格：1回1,000円（税込）\n・適用期限：2026年12月31日まで"
-      : "・税理士へのLINE個別相談：1回3,000円（税込）";
+      ? "・テスト期間価格：1回1,100円（税込）\n・適用期限：2026年12月31日まで"
+      : "・税理士へのLINE個別相談：1回3,300円（税込）";
   return [
     "【料金】",
     "・AIによる一般的な税務情報の回答：無料（月100件まで）",
     currentLine,
     ...(current.code === "promo_2026"
-      ? ["・2027年1月1日以降：1回3,000円（税込）"]
+      ? ["・2027年1月1日以降：1回3,300円（税込）"]
       : []),
     "",
     "税理士相談は、相談内容をご確認いただいた後に1回分をお支払いいただきます。",
