@@ -108,7 +108,7 @@ export const richMenuDefinition = {
       // 料金の確認と申し込みを分離する。ここでは決済ページを作らない。
       action: {
         type: "postback",
-        label: "料金プラン",
+        label: "料金・相談料",
         data: "action=show_pricing",
         displayText: "料金プランを見ます",
       },
@@ -133,11 +133,12 @@ export const richMenuDefinition = {
     },
     {
       bounds: cell(1, 1),
+      // 都度払いに解約する契約は無い。領収書と支払い方法の導線にする。
       action: {
         type: "postback",
-        label: "利用状況・退会",
+        label: "お支払い",
         data: "action=open_billing_portal",
-        displayText: "利用状況と退会方法を確認します",
+        displayText: "お支払い方法と領収書を確認します",
       },
     },
     {
