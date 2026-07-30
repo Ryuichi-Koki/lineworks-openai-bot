@@ -66,19 +66,17 @@ test("ラベルと実際の動作が一致している", () => {
     areas.map((area) => [area.action.label, area.action]),
   );
 
-  // 「料金プラン」は料金表示であり、申し込み・決済を開始しない
-  assert.equal(byLabel.get("料金プラン")?.data, "action=show_pricing");
-  assert.equal(byLabel.get("料金プラン")?.displayText, "料金プランを見ます");
+  // 「料金・相談料」は料金表示であり、申し込み・決済を開始しない
+  assert.equal(byLabel.get("料金・相談料")?.data, "action=show_pricing");
+  assert.equal(byLabel.get("料金・相談料")?.displayText, "料金プランを見ます");
 
-  // 都度課金利用者にも意味が通じ、押しただけで退会を確定しない
+  // 都度払いに解約する契約は無い。退会ではなく支払い導線であること
+  assert.equal(byLabel.get("お支払い")?.data, "action=open_billing_portal");
   assert.equal(
-    byLabel.get("利用状況・退会")?.data,
-    "action=open_billing_portal",
+    byLabel.get("お支払い")?.displayText,
+    "お支払い方法と領収書を確認します",
   );
-  assert.equal(
-    byLabel.get("利用状況・退会")?.displayText,
-    "利用状況と退会方法を確認します",
-  );
+  assert.doesNotMatch(String(byLabel.get("お支払い")?.displayText), /退会|解約/);
 
   assert.equal(byLabel.get("マイページ")?.data, "action=show_status");
   assert.equal(byLabel.get("質問する")?.data, "action=start_question");
