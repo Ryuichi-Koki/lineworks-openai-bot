@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type BillingStatusPageProps = {
+export type BillingStatusPageProps = {
   badge: string;
   description: string;
   icon: string;
