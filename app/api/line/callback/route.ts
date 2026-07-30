@@ -35,6 +35,7 @@ import {
 import {
   BILLING_MANAGEMENT_UNAVAILABLE_MESSAGE,
   noActiveSubscriptionManagementMessage,
+  oneTimeBillingManagementMessage,
 } from "@/lib/membership/managementMessages";
 import {
   beginWebhookEvent,
@@ -387,6 +388,11 @@ async function showBillingManagement(
     ["active", "past_due", "cancel_at_period_end", "suspended"].includes(
       billingState.status,
     );
+  if (oneTimeConsultationBillingEnabled()) {
+    const message = oneTimeBillingManagementMessage(stripeMembership);
+    await pushLineMessage(userId, message, randomUUID());
+    return message;
+  }
   if (!stripeMembership) {
     const message =
       intent === "cancel"
