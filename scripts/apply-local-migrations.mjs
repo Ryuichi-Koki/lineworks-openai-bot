@@ -29,6 +29,7 @@ try {
     "004_policy_acceptances.sql",
     "005_pending_questions.sql",
     "006_one_time_tax_review.sql",
+    "007_tax_review_delivery_and_refunds.sql",
   ]) {
     const migration = await readFile(
       path.join(projectRoot, "migrations", filename),

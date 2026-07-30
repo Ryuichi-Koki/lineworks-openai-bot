@@ -41,12 +41,11 @@ import {
   cancelTaxReviewIntake,
   cancelReviewRequest,
   cancelUsage,
-  completeReviewRequest,
   consumeUsage,
   createReviewDraft,
   endMembership,
   ensureMembershipUser,
-  failReviewRequest,
+  enqueueTaxReviewDelivery,
   finishWebhookEvent,
   getMembershipBillingState,
   getUsageSummary,
@@ -83,7 +82,9 @@ import {
   TAX_AI_QUESTION_GUIDE_MESSAGE,
 } from "@/lib/tax/hybridService";
 import { dispatchTaxProfessionalReview } from "@/lib/tax/consultationService";
+import { processTaxReviewDelivery } from "@/lib/tax/deliveryQueue";
 import {
+  cancelTaxReviewCheckout,
   createCustomerPortalSession,
   createSubscriptionCheckoutSession,
   createTaxReviewCheckoutSession,
@@ -680,6 +681,7 @@ async function submitTaxProfessionalReview(event: {
           includeTaxReviewPaymentButton: true,
           taxReviewPaymentUrl: checkout.url,
           taxReviewPaymentAmount: checkout.amount,
+          taxReviewRequestId: event.reviewRequestId,
         },
       );
     } catch (error) {
@@ -710,33 +712,23 @@ async function submitTaxProfessionalReview(event: {
     );
     return;
   }
-  try {
-    await dispatchTaxProfessionalReview({
-      eventId: event.eventId,
-      userId: event.userId,
-      customerText: "税理士相談依頼（内容確認済み）",
-    });
-    await completeReviewRequest(
-      event.userId,
-      event.reviewRequestId,
-      reservation.usageEventId,
-    );
-  } catch (error) {
-    await failReviewRequest(
-      event.userId,
-      event.reviewRequestId,
-      reservation.usageEventId,
-    );
+  const jobId = await enqueueTaxReviewDelivery({
+    eventId: `line:${event.eventId}:tax_review`,
+    lineUserId: event.userId,
+    reviewRequestId: event.reviewRequestId,
+    usageEventId: reservation.usageEventId,
+  });
+  const delivery = await processTaxReviewDelivery(jobId);
+  if (delivery !== "completed") {
     await notifyUserOfFailure(
       event.userId,
       [
-        "申し訳ありません。税理士相談の受付処理に失敗しました。",
-        "相談枠は消費していません。",
+        "税理士相談の受付情報を記録しました。",
+        "現在、税理士への通知を再試行しています。受付完了後にLINEでお知らせします。",
         "",
-        "お手数ですが、もう一度［税理士に相談］からお試しください。",
+        "重複して操作せず、そのままお待ちください。",
       ].join("\n"),
     );
-    throw error;
   }
 }
 
@@ -1264,7 +1256,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             await sendMembershipStatus(
               accepted.event.userId,
               hasPaidSubscription
-                ? "現在は有料契約中です。無料会員への変更は「退会・契約管理」から期間末解約を行ってください。"
+                ? "現在は旧月額契約をご利用中です。無料利用への変更は［利用状況・退会］から期間末解約を行ってください。"
                 : registration.isNew
                   ? [
                       "無料会員として登録しました。",
@@ -1434,14 +1426,34 @@ export async function POST(request: Request): Promise<NextResponse> {
             accepted.event.reviewRequestId
           ) {
             // 下書きを取り消して入力受付をやり直す。枠は submit 時点まで予約しないため消費しない。
-            const canceled = await cancelReviewRequest(
+            let canceled = await cancelReviewRequest(
               accepted.event.userId,
               accepted.event.reviewRequestId,
             );
+            if (!canceled && oneTimeConsultationBillingEnabled()) {
+              try {
+                canceled = await cancelTaxReviewCheckout({
+                  lineUserId: accepted.event.userId,
+                  reviewRequestId: accepted.event.reviewRequestId,
+                });
+              } catch (error) {
+                console.error("Tax review Checkout cancellation failed", {
+                  errorName: error instanceof Error ? error.name : "UnknownError",
+                  errorMessage:
+                    error instanceof Error ? error.message : "Unknown error",
+                });
+                await pushLineMessage(
+                  accepted.event.userId,
+                  "決済画面の安全な停止を確認できなかったため、入力内容を変更していません。決済画面を閉じ、時間をおいてもう一度お試しください。",
+                  randomUUID(),
+                );
+                continue;
+              }
+            }
             if (!canceled) {
               await pushLineMessage(
                 accepted.event.userId,
-                "すでに決済手続きへ進んでいるため、この画面からは入力し直せません。未決済の場合はStripe画面を閉じ、30分後にもう一度［税理士相談］からお試しください。",
+                "お支払い済み又は受付済みのため、この内容は入力し直せません。",
                 randomUUID(),
               );
             } else if (membershipBillingEnabled()) {
@@ -1454,15 +1466,29 @@ export async function POST(request: Request): Promise<NextResponse> {
               );
             }
           } else if (accepted.event.reviewRequestId) {
-            const canceled = await cancelReviewRequest(
+            let canceled = await cancelReviewRequest(
               accepted.event.userId,
               accepted.event.reviewRequestId,
             );
+            if (!canceled && oneTimeConsultationBillingEnabled()) {
+              try {
+                canceled = await cancelTaxReviewCheckout({
+                  lineUserId: accepted.event.userId,
+                  reviewRequestId: accepted.event.reviewRequestId,
+                });
+              } catch (error) {
+                console.error("Tax review Checkout cancellation failed", {
+                  errorName: error instanceof Error ? error.name : "UnknownError",
+                  errorMessage:
+                    error instanceof Error ? error.message : "Unknown error",
+                });
+              }
+            }
             await pushLineMessage(
               accepted.event.userId,
               canceled
                 ? "税理士相談の依頼をキャンセルしました。相談枠は消費していません。"
-                : "すでに決済手続きへ進んでいるため、この画面からはキャンセルできません。未決済の場合はStripe画面を閉じれば請求は発生しません。",
+                : "お支払い済み又は受付済みのため、この内容はキャンセルできません。確認が必要な場合はinfo@abtax.jpへご連絡ください。",
               randomUUID(),
             );
           }

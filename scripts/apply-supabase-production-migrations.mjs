@@ -54,6 +54,8 @@ const migrations = [
   "003_tax_review_intakes.sql",
   "004_policy_acceptances.sql",
   "005_pending_questions.sql",
+  "006_one_time_tax_review.sql",
+  "007_tax_review_delivery_and_refunds.sql",
 ];
 
 try {
@@ -77,6 +79,9 @@ try {
     "tax_review_intakes",
     "policy_acceptances",
     "pending_questions",
+    "tax_review_payments",
+    "tax_review_refunds",
+    "tax_review_delivery_jobs",
   ];
   const tableRows = await sql`
     select tablename

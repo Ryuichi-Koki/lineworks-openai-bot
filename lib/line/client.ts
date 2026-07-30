@@ -26,6 +26,7 @@ export async function pushLineMessage(
     includeTaxReviewPaymentButton?: boolean;
     taxReviewPaymentUrl?: string;
     taxReviewPaymentAmount?: number;
+    taxReviewRequestId?: string;
     includeMembershipManagementButton?: boolean;
     membershipManagementUrl?: string;
     includeMembershipMenu?: boolean;
@@ -100,6 +101,7 @@ export async function pushLineMessage(
   const taxReviewPaymentUrl = options.taxReviewPaymentUrl?.trim();
   if (options.includeTaxReviewPaymentButton && taxReviewPaymentUrl) {
     const amount = options.taxReviewPaymentAmount;
+    const reviewRequestId = options.taxReviewRequestId?.trim();
     if (!Number.isInteger(amount) || Number(amount) < 1) {
       throw new Error(
         "taxReviewPaymentAmount is required when the payment button is included",
@@ -122,6 +124,22 @@ export async function pushLineMessage(
             label: "特商法表記を確認",
             uri: legalDocumentUrl("tokusho"),
           },
+          ...(reviewRequestId
+            ? [
+                {
+                  type: "postback",
+                  label: "内容を入力し直す",
+                  data: `action=restart_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
+                  displayText: "相談内容を入力し直します",
+                },
+                {
+                  type: "postback",
+                  label: "支払いをやめる",
+                  data: `action=cancel_tax_review&id=${encodeURIComponent(reviewRequestId)}`,
+                  displayText: "税理士相談の支払いを中止します",
+                },
+              ]
+            : []),
         ],
       },
     });
@@ -393,7 +411,7 @@ export async function pushLineReviewConfirmation(
               "この内容で依頼しますか？",
               requiresPayment
                 ? `次に相談1回分 ${paymentAmount.toLocaleString("ja-JP")}円（税込）の決済画面へ進みます。このボタンではまだ請求されません。`
-                : `確定すると税理士相談の枠を1件消費します（残り${remaining}件→${afterSubmit}件）。`,
+                : `旧あんしん会員契約の特典を利用します。今回は追加のお支払いはありません（相談枠 ${remaining}件→${afterSubmit}件）。`,
             ]
               .join("\n")
               .slice(0, 160),

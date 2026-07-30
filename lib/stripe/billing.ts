@@ -4,7 +4,9 @@ import { legalDocumentUrl } from "../legal/config.ts";
 import type { PlanCode } from "../membership/plans.ts";
 import {
   attachTaxReviewCheckout,
+  cancelTaxReviewPayment,
   createOrGetTaxReviewPayment,
+  findCancelableTaxReviewCheckout,
   findStripeBillingIdentityForLineUser,
   findStripeCustomerForLineUser,
 } from "../membership/store.ts";
@@ -243,6 +245,37 @@ export async function createTaxReviewCheckoutSession(input: {
     checkoutExpiresAt: new Date(expiresAt * 1000).toISOString(),
   });
   return { url: session.url, amount: selectedPrice.amount, reused: false };
+}
+
+export async function cancelTaxReviewCheckout(input: {
+  lineUserId: string;
+  reviewRequestId: string;
+}): Promise<boolean> {
+  const payment = await findCancelableTaxReviewCheckout(input);
+  if (!payment) return false;
+  const checkoutStillValid =
+    payment.checkoutExpiresAt &&
+    Date.parse(payment.checkoutExpiresAt) > Date.now();
+  if (payment.checkoutSessionId && checkoutStillValid) {
+    const stripe = stripeClient();
+    const session = await stripe.checkout.sessions.retrieve(
+      payment.checkoutSessionId,
+    );
+    assertStripeObjectMode(session.livemode);
+    if (session.payment_status === "paid") {
+      throw new Error("A paid tax review Checkout Session cannot be canceled");
+    }
+    if (session.status === "complete") {
+      throw new Error(
+        "A tax review payment that is still processing cannot be canceled",
+      );
+    }
+    if (session.status === "open") {
+      const expired = await stripe.checkout.sessions.expire(session.id);
+      assertStripeObjectMode(expired.livemode);
+    }
+  }
+  return cancelTaxReviewPayment(input);
 }
 
 export async function createCustomerPortalSession(

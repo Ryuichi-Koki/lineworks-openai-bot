@@ -396,7 +396,9 @@ test("税理士相談の確認では依頼内容を全文表示し、消費す�
     actions?: Array<Record<string, unknown>>;
   };
   assert.ok((template.text?.length ?? 0) <= 160, "ボタンテンプレートは160字以内");
-  assert.match(String(template.text), /残り1件→0件/);
+  assert.match(String(template.text), /旧あんしん会員契約の特典/);
+  assert.match(String(template.text), /追加のお支払いはありません/);
+  assert.match(String(template.text), /1件→0件/);
   assert.deepEqual(
     template.actions?.map((action) => action.label),
     ["この内容で依頼する", "入力し直す", "やめる"],
@@ -662,6 +664,7 @@ test("税理士相談の都度決済ボタンは金額・提供開始・自動�
       includeTaxReviewPaymentButton: true,
       taxReviewPaymentUrl: "https://checkout.stripe.com/c/pay/test-tax-review",
       taxReviewPaymentAmount: 1000,
+      taxReviewRequestId: "review-payment-actions",
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -687,6 +690,14 @@ test("税理士相談の都度決済ボタンは金額・提供開始・自動�
     "https://checkout.stripe.com/c/pay/test-tax-review",
   );
   assert.equal(template.actions?.[1]?.uri, "https://bot.abtax.jp/tokusho");
+  assert.equal(
+    template.actions?.[2]?.data,
+    "action=restart_tax_review&id=review-payment-actions",
+  );
+  assert.equal(
+    template.actions?.[3]?.data,
+    "action=cancel_tax_review&id=review-payment-actions",
+  );
 });
 
 test("LINE APIの差し替えはローカルテストURLだけを許可する", () => {

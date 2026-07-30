@@ -4,7 +4,9 @@ import { freePeriod } from "./periods.ts";
 import type {
   MembershipStatus,
   MembershipSync,
+  TaxReviewDeliveryJob,
   TaxReviewPayment,
+  TaxReviewRefundProjection,
   UsageReservation,
   UsageSummary,
   UsageType,
@@ -68,6 +70,32 @@ function toTaxReviewPayment(row: Record<string, unknown>): TaxReviewPayment {
     checkoutExpiresAt: row.checkout_expires_at
       ? new Date(String(row.checkout_expires_at)).toISOString()
       : null,
+  };
+}
+
+function optionalTimestamp(value: unknown): string | null {
+  return value ? new Date(String(value)).toISOString() : null;
+}
+
+function toTaxReviewDeliveryJob(
+  row: Record<string, unknown>,
+): TaxReviewDeliveryJob {
+  return {
+    id: String(row.id),
+    eventId: String(row.event_id),
+    reviewRequestId: String(row.review_request_id),
+    paymentId: row.payment_id ? String(row.payment_id) : null,
+    usageEventId: row.usage_event_id ? String(row.usage_event_id) : null,
+    lineUserId: String(row.line_user_id),
+    questionSummary: String(row.question_summary),
+    paymentStatus: row.payment_status
+      ? (String(row.payment_status) as TaxReviewPayment["status"])
+      : null,
+    status: String(row.status) as TaxReviewDeliveryJob["status"],
+    attemptCount: Number(row.attempt_count),
+    staffSentAt: optionalTimestamp(row.staff_sent_at),
+    customerSentAt: optionalTimestamp(row.customer_sent_at),
+    conversationSavedAt: optionalTimestamp(row.conversation_saved_at),
   };
 }
 
@@ -641,8 +669,14 @@ export async function markTaxReviewPaymentPaid(input: {
     ) {
       throw new Error("Stripe payment amount or currency does not match");
     }
-    if (String(payment.status) === "refunded") {
-      throw new Error("Refunded tax review payment cannot be consumed");
+    if (
+      ["canceled", "partially_refunded", "refunded"].includes(
+        String(payment.status),
+      )
+    ) {
+      throw new Error(
+        "Canceled or refunded tax review payment cannot be consumed",
+      );
     }
     await transaction`
       update tax_review_payments
@@ -700,14 +734,384 @@ export async function completePaidTaxReview(paymentId: string): Promise<boolean>
 
 export async function markTaxReviewPaymentFailed(
   checkoutSessionId: string,
+): Promise<TaxReviewPayment | null> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction`
+      update tax_review_payments p
+      set status = 'failed', failed_at = now(), updated_at = now()
+      from users u, review_requests r
+      where p.stripe_checkout_session_id = ${checkoutSessionId}
+        and p.status = 'pending'
+        and u.id = p.user_id
+        and r.id = p.review_request_id
+      returning p.*, u.line_user_id, r.question_summary
+    `;
+    if (!rows[0]) return null;
+    await transaction`
+      update review_requests
+      set status = 'draft', updated_at = now()
+      where id = ${String(rows[0].review_request_id)}
+        and status = 'awaiting_payment'
+    `;
+    return toTaxReviewPayment(rows[0]);
+  });
+}
+
+export async function findCancelableTaxReviewCheckout(input: {
+  lineUserId: string;
+  reviewRequestId: string;
+}): Promise<TaxReviewPayment | null> {
+  const sql = database();
+  const rows = await sql`
+    select p.*, u.line_user_id, r.question_summary
+    from tax_review_payments p
+    join users u on u.id = p.user_id
+    join review_requests r on r.id = p.review_request_id
+    where p.review_request_id = ${input.reviewRequestId}
+      and u.line_user_id = ${input.lineUserId}
+      and p.status in ('pending', 'failed')
+  `;
+  return rows[0] ? toTaxReviewPayment(rows[0]) : null;
+}
+
+export async function cancelTaxReviewPayment(input: {
+  lineUserId: string;
+  reviewRequestId: string;
+}): Promise<boolean> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction`
+      update tax_review_payments p
+      set status = 'canceled', updated_at = now()
+      from users u
+      where p.review_request_id = ${input.reviewRequestId}
+        and p.user_id = u.id
+        and u.line_user_id = ${input.lineUserId}
+        and p.status in ('pending', 'failed')
+      returning p.id
+    `;
+    if (!rows[0]) return false;
+    await transaction`
+      update review_requests r
+      set status = 'canceled', canceled_at = now(), updated_at = now()
+      from users u
+      where r.id = ${input.reviewRequestId}
+        and r.user_id = u.id
+        and u.line_user_id = ${input.lineUserId}
+        and r.status in ('draft', 'awaiting_payment')
+    `;
+    return true;
+  });
+}
+
+export async function enqueueTaxReviewDelivery(input: {
+  eventId: string;
+  lineUserId: string;
+  reviewRequestId: string;
+  paymentId?: string | null;
+  usageEventId?: string | null;
+}): Promise<string> {
+  if (!input.paymentId && !input.usageEventId) {
+    throw new Error("A payment or usage event is required for tax review delivery");
+  }
+  const sql = database();
+  const rows = await sql`
+    insert into tax_review_delivery_jobs (
+      event_id, review_request_id, payment_id, usage_event_id, line_user_id
+    )
+    select
+      ${input.eventId}, r.id, ${input.paymentId ?? null},
+      ${input.usageEventId ?? null}, u.line_user_id
+    from review_requests r
+    join users u on u.id = r.user_id
+    where r.id = ${input.reviewRequestId}
+      and u.line_user_id = ${input.lineUserId}
+    on conflict (review_request_id) do update set
+      updated_at = now()
+    returning id
+  `;
+  if (!rows[0]) throw new Error("Tax review delivery request was not found");
+  return String(rows[0].id);
+}
+
+export async function enqueueMissingPaidTaxReviewDeliveries(): Promise<number> {
+  const sql = database();
+  const rows = await sql`
+    insert into tax_review_delivery_jobs (
+      event_id, review_request_id, payment_id, line_user_id
+    )
+    select
+      'reconcile:' || p.id::text, p.review_request_id, p.id, u.line_user_id
+    from tax_review_payments p
+    join users u on u.id = p.user_id
+    left join tax_review_delivery_jobs j on j.payment_id = p.id
+    where p.status = 'paid' and j.id is null
+    on conflict do nothing
+    returning id
+  `;
+  return rows.length;
+}
+
+export async function claimTaxReviewDeliveryJobs(
+  limit = 10,
+): Promise<TaxReviewDeliveryJob[]> {
+  const sql = database();
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 25));
+  return sql.begin(async (transaction) => {
+    const claimed = await transaction`
+      with candidates as (
+        select id
+        from tax_review_delivery_jobs
+        where (
+          status = 'pending' and next_attempt_at <= now()
+        ) or (
+          status = 'processing'
+          and locked_at < now() - interval '5 minutes'
+        )
+        order by created_at
+        for update skip locked
+        limit ${safeLimit}
+      )
+      update tax_review_delivery_jobs j
+      set status = 'processing', locked_at = now(), updated_at = now()
+      from candidates
+      where j.id = candidates.id
+      returning j.id
+    `;
+    if (claimed.length === 0) return [];
+    const ids = claimed.map((row) => String(row.id));
+    const rows = await transaction`
+      select j.*, r.question_summary, p.status as payment_status
+      from tax_review_delivery_jobs j
+      join review_requests r on r.id = j.review_request_id
+      left join tax_review_payments p on p.id = j.payment_id
+      where j.id in ${transaction(ids)}
+      order by j.created_at
+    `;
+    return rows.map((row) => toTaxReviewDeliveryJob(row));
+  });
+}
+
+export async function claimTaxReviewDeliveryJob(
+  jobId: string,
+): Promise<TaxReviewDeliveryJob | null> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const claimed = await transaction`
+      update tax_review_delivery_jobs
+      set status = 'processing', locked_at = now(), updated_at = now()
+      where id = ${jobId}
+        and (
+          (status = 'pending' and next_attempt_at <= now())
+          or (
+            status = 'processing'
+            and locked_at < now() - interval '5 minutes'
+          )
+        )
+      returning id
+    `;
+    if (!claimed[0]) return null;
+    const rows = await transaction`
+      select j.*, r.question_summary, p.status as payment_status
+      from tax_review_delivery_jobs j
+      join review_requests r on r.id = j.review_request_id
+      left join tax_review_payments p on p.id = j.payment_id
+      where j.id = ${jobId}
+    `;
+    return rows[0] ? toTaxReviewDeliveryJob(rows[0]) : null;
+  });
+}
+
+export async function markTaxReviewDeliveryStep(
+  jobId: string,
+  step: "staff" | "customer" | "conversation",
 ): Promise<void> {
   const sql = database();
+  if (step === "staff") {
+    await sql`
+      update tax_review_delivery_jobs
+      set staff_sent_at = coalesce(staff_sent_at, now()), updated_at = now()
+      where id = ${jobId} and status = 'processing'
+    `;
+  } else if (step === "customer") {
+    await sql`
+      update tax_review_delivery_jobs
+      set customer_sent_at = coalesce(customer_sent_at, now()), updated_at = now()
+      where id = ${jobId} and status = 'processing'
+    `;
+  } else {
+    await sql`
+      update tax_review_delivery_jobs
+      set conversation_saved_at = coalesce(conversation_saved_at, now()),
+        updated_at = now()
+      where id = ${jobId} and status = 'processing'
+    `;
+  }
+}
+
+export async function completeTaxReviewDeliveryJob(jobId: string): Promise<void> {
+  const sql = database();
   await sql`
-    update tax_review_payments
-    set status = 'failed', failed_at = now(), updated_at = now()
-    where stripe_checkout_session_id = ${checkoutSessionId}
-      and status = 'pending'
+    update tax_review_delivery_jobs
+    set status = 'completed', completed_at = coalesce(completed_at, now()),
+      locked_at = null, last_error = null, updated_at = now()
+    where id = ${jobId} and status = 'processing'
   `;
+}
+
+export async function retryTaxReviewDeliveryJob(
+  jobId: string,
+  errorMessage: string,
+  maxAttempts = 8,
+): Promise<"pending" | "failed"> {
+  const sql = database();
+  const rows = await sql`
+    update tax_review_delivery_jobs
+    set
+      attempt_count = attempt_count + 1,
+      status = case
+        when attempt_count + 1 >= ${maxAttempts} then 'failed'
+        else 'pending'
+      end,
+      next_attempt_at = now() + (
+        least(60, power(2, least(attempt_count + 1, 6)))::text || ' minutes'
+      )::interval,
+      locked_at = null,
+      last_error = ${errorMessage.slice(0, 1000)},
+      updated_at = now()
+    where id = ${jobId} and status = 'processing'
+    returning status
+  `;
+  return String(rows[0]?.status ?? "failed") as "pending" | "failed";
+}
+
+export async function completeQueuedTaxReview(job: TaxReviewDeliveryJob): Promise<void> {
+  if (job.paymentId) {
+    await completePaidTaxReview(job.paymentId);
+    return;
+  }
+  if (!job.usageEventId) {
+    throw new Error("Tax review delivery has no payment or usage event");
+  }
+  await completeReviewRequest(
+    job.lineUserId,
+    job.reviewRequestId,
+    job.usageEventId,
+  );
+}
+
+export async function markExpiredTaxReviewPayments(): Promise<TaxReviewPayment[]> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction`
+      update tax_review_payments p
+      set status = 'failed', failed_at = coalesce(failed_at, now()), updated_at = now()
+      from users u, review_requests r
+      where p.status = 'pending'
+        and p.checkout_expires_at <= now()
+        and u.id = p.user_id
+        and r.id = p.review_request_id
+      returning p.*, u.line_user_id, r.question_summary
+    `;
+    for (const row of rows) {
+      await transaction`
+        update review_requests
+        set status = 'draft', updated_at = now()
+        where id = ${String(row.review_request_id)}
+          and status = 'awaiting_payment'
+      `;
+    }
+    return rows.map((row) => toTaxReviewPayment(row));
+  });
+}
+
+export async function recordTaxReviewRefund(input: {
+  refundId: string;
+  paymentIntentId: string;
+  amount: number;
+  currency: string;
+  status: string;
+  reason?: string | null;
+  failureReason?: string | null;
+}): Promise<TaxReviewRefundProjection | null> {
+  const sql = database();
+  return sql.begin(async (transaction) => {
+    const paymentRows = await transaction`
+      select p.*, u.line_user_id
+      from tax_review_payments p
+      join users u on u.id = p.user_id
+      where p.stripe_payment_intent_id = ${input.paymentIntentId}
+      for update
+    `;
+    const payment = paymentRows[0];
+    if (!payment) return null;
+    if (
+      input.currency.toLowerCase() !== String(payment.currency) ||
+      input.amount <= 0
+    ) {
+      throw new Error("Stripe refund amount or currency is invalid");
+    }
+    await transaction`
+      insert into tax_review_refunds (
+        stripe_refund_id, payment_id, amount, currency, status,
+        reason, failure_reason
+      ) values (
+        ${input.refundId}, ${String(payment.id)}, ${input.amount},
+        ${input.currency.toLowerCase()}, ${input.status.slice(0, 100)},
+        ${input.reason ?? null}, ${input.failureReason ?? null}
+      )
+      on conflict (stripe_refund_id) do update set
+        status = excluded.status,
+        reason = excluded.reason,
+        failure_reason = excluded.failure_reason,
+        updated_at = now()
+    `;
+    const totals = await transaction`
+      select coalesce(sum(amount), 0)::integer as refunded_amount
+      from tax_review_refunds
+      where payment_id = ${String(payment.id)}
+        and status = 'succeeded'
+    `;
+    const refundedAmount = Number(totals[0]?.refunded_amount ?? 0);
+    const updated = await transaction`
+      update tax_review_payments
+      set
+        refunded_amount = ${refundedAmount},
+        refunded_at = case
+          when ${refundedAmount} > 0 then coalesce(refunded_at, now())
+          else refunded_at
+        end,
+        status = case
+          when ${refundedAmount} >= amount then 'refunded'
+          when ${refundedAmount} > 0 then 'partially_refunded'
+          else status
+        end,
+        updated_at = now()
+      where id = ${String(payment.id)}
+      returning amount, currency, status
+    `;
+    if (refundedAmount >= Number(payment.amount)) {
+      await transaction`
+        update tax_review_delivery_jobs
+        set status = 'canceled', locked_at = null,
+          last_error = 'Payment was fully refunded before delivery completed',
+          updated_at = now()
+        where payment_id = ${String(payment.id)}
+          and status in ('pending', 'processing', 'failed')
+      `;
+    }
+    return {
+      refundId: input.refundId,
+      lineUserId: String(payment.line_user_id),
+      amount: input.amount,
+      currency: "jpy",
+      refundStatus: input.status,
+      paymentAmount: Number(updated[0].amount),
+      refundedAmount,
+      paymentStatus: String(updated[0].status) as TaxReviewPayment["status"],
+    };
+  });
 }
 
 /**
@@ -842,6 +1246,77 @@ export async function getPlanCounts(): Promise<Array<{ planCode: string; count: 
     planCode: String(row.plan_code),
     count: Number(row.count),
   }));
+}
+
+export async function getTaxReviewOperationsSummary(): Promise<{
+  pendingPayments: number;
+  paidAwaitingDelivery: number;
+  pendingDeliveries: number;
+  failedDeliveries: number;
+  refundedPayments: number;
+}> {
+  const sql = database();
+  const rows = await sql`
+    select
+      (select count(*)::integer from tax_review_payments where status = 'pending')
+        as pending_payments,
+      (select count(*)::integer from tax_review_payments where status = 'paid')
+        as paid_awaiting_delivery,
+      (select count(*)::integer from tax_review_delivery_jobs
+        where status in ('pending', 'processing')) as pending_deliveries,
+      (select count(*)::integer from tax_review_delivery_jobs
+        where status = 'failed') as failed_deliveries,
+      (select count(*)::integer from tax_review_payments
+        where status in ('partially_refunded', 'refunded')) as refunded_payments
+  `;
+  const row = rows[0];
+  return {
+    pendingPayments: Number(row.pending_payments),
+    paidAwaitingDelivery: Number(row.paid_awaiting_delivery),
+    pendingDeliveries: Number(row.pending_deliveries),
+    failedDeliveries: Number(row.failed_deliveries),
+    refundedPayments: Number(row.refunded_payments),
+  };
+}
+
+export async function listAdminTaxReviewDeliveryAlerts(): Promise<
+  Array<{
+    id: string;
+    lineUserId: string;
+    status: string;
+    attemptCount: number;
+    lastError: string | null;
+    updatedAt: string;
+  }>
+> {
+  const sql = database();
+  const rows = await sql`
+    select id, line_user_id, status, attempt_count, last_error, updated_at
+    from tax_review_delivery_jobs
+    where status = 'failed'
+    order by updated_at desc
+    limit 50
+  `;
+  return rows.map((row) => ({
+    id: String(row.id),
+    lineUserId: String(row.line_user_id),
+    status: String(row.status),
+    attemptCount: Number(row.attempt_count),
+    lastError: row.last_error ? String(row.last_error) : null,
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  }));
+}
+
+export async function requeueTaxReviewDeliveryJob(jobId: string): Promise<boolean> {
+  const sql = database();
+  const rows = await sql`
+    update tax_review_delivery_jobs
+    set status = 'pending', attempt_count = 0, next_attempt_at = now(),
+      locked_at = null, last_error = null, updated_at = now()
+    where id = ${jobId} and status = 'failed'
+    returning id
+  `;
+  return rows.length > 0;
 }
 
 export async function findStripeCustomerForLineUser(

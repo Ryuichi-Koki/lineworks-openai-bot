@@ -70,10 +70,15 @@ test("ラベルと実際の動作が一致している", () => {
   assert.equal(byLabel.get("料金プラン")?.data, "action=show_pricing");
   assert.equal(byLabel.get("料金プラン")?.displayText, "料金プランを見ます");
 
-  // 「契約管理」を押しただけで「退会したい」と発言した扱いにしない
-  assert.equal(byLabel.get("契約管理")?.data, "action=open_billing_portal");
-  assert.equal(byLabel.get("契約管理")?.displayText, "契約管理を開きます");
-  assert.doesNotMatch(String(byLabel.get("契約管理")?.displayText), /退会/);
+  // 都度課金利用者にも意味が通じ、押しただけで退会を確定しない
+  assert.equal(
+    byLabel.get("利用状況・退会")?.data,
+    "action=open_billing_portal",
+  );
+  assert.equal(
+    byLabel.get("利用状況・退会")?.displayText,
+    "利用状況と退会方法を確認します",
+  );
 
   assert.equal(byLabel.get("マイページ")?.data, "action=show_status");
   assert.equal(byLabel.get("質問する")?.data, "action=start_question");

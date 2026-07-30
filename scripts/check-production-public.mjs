@@ -8,6 +8,7 @@ const checks = [
   ["/privacy", "プライバシー"],
   ["/tokusho", "特定商取引"],
   ["/cancellation", "解約"],
+  ["/billing/cancel?purchase=tax_review", "税理士相談"],
 ];
 
 let failed = false;
@@ -21,7 +22,11 @@ for (const [pathname, expectedText] of checks) {
       headers: { "user-agent": "ApexBrain-Production-Healthcheck/1.0" },
     });
     const body = await response.text();
-    const ok = response.ok && body.includes(expectedText);
+    const securityHeadersPresent =
+      response.headers.get("content-security-policy")?.includes("frame-ancestors 'none'") &&
+      response.headers.get("x-content-type-options") === "nosniff" &&
+      response.headers.get("referrer-policy") === "strict-origin-when-cross-origin";
+    const ok = response.ok && body.includes(expectedText) && securityHeadersPresent;
     console.log(`${ok ? "OK" : "NG"} ${response.status} ${url.pathname}`);
     if (!ok) failed = true;
   } catch (error) {

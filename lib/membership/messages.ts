@@ -90,7 +90,7 @@ const MEMBERSHIP_STATUS_LABELS: Record<MembershipStatus, string> = {
  */
 export function buildStatusMessage(summary: UsageSummary): string {
   const plan = PLAN_CONFIG[summary.planCode];
-  const lines = ["【現在のご契約】", ""];
+  const lines = ["【現在のご契約・利用状況】", ""];
 
   lines.push(`■ プラン：${planHeadline(summary.planCode)}`);
 
@@ -112,7 +112,7 @@ export function buildStatusMessage(summary: UsageSummary): string {
   lines.push(`・AI回答：${summary.aiRemaining}回 / ${plan.aiLimit}回`);
   lines.push(
     plan.taxReviewLimit > 0
-      ? `・税理士相談：${summary.taxReviewRemaining}件 / ${plan.taxReviewLimit}件`
+      ? `・旧月額契約の税理士相談特典：${summary.taxReviewRemaining}件 / ${plan.taxReviewLimit}件（利用時の追加決済なし）`
       : oneTimeConsultationBillingEnabled()
         ? "・税理士相談：1回ごとのお支払いで利用できます"
         : "・税理士相談：あんしん会員でご利用いただけます",
@@ -128,7 +128,7 @@ export function buildStatusMessage(summary: UsageSummary): string {
   if (summary.paymentFailed) {
     lines.push(
       "",
-      "⚠ お支払いの確認ができていません。契約管理から支払方法をご確認ください。",
+      "⚠ 旧月額契約のお支払いを確認できません。［利用状況・退会］から支払方法をご確認ください。",
     );
   }
 
@@ -177,7 +177,7 @@ export function resolveBillingNotification(input: {
 function planHeadline(planCode: PlanCode): string {
   const plan = PLAN_CONFIG[planCode];
   if (plan.monthlyPrice === 0) return plan.name;
-  return `${plan.name}（月額${plan.monthlyPrice.toLocaleString("ja-JP")}円 税込）`;
+  return `${plan.name}（旧月額契約・月額${plan.monthlyPrice.toLocaleString("ja-JP")}円 税込）`;
 }
 
 function renewalLine(summary: UsageSummary): string {
@@ -192,7 +192,7 @@ function remainingBlock(summary: UsageSummary): string {
   return [
     "【現在の残数】",
     `・AI回答：${summary.aiRemaining}回`,
-    `・税理士相談：${summary.taxReviewRemaining}件`,
+    `・旧月額契約の税理士相談特典：${summary.taxReviewRemaining}件`,
   ].join("\n");
 }
 

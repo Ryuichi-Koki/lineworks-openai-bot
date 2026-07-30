@@ -54,6 +54,8 @@ export type TaxReviewPaymentStatus =
   | "paid"
   | "consumed"
   | "failed"
+  | "canceled"
+  | "partially_refunded"
   | "refunded";
 
 export type TaxReviewPayment = {
@@ -68,4 +70,38 @@ export type TaxReviewPayment = {
   checkoutSessionId: string | null;
   checkoutUrl: string | null;
   checkoutExpiresAt: string | null;
+};
+
+export type TaxReviewDeliveryJobStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export type TaxReviewDeliveryJob = {
+  id: string;
+  eventId: string;
+  reviewRequestId: string;
+  paymentId: string | null;
+  usageEventId: string | null;
+  lineUserId: string;
+  questionSummary: string;
+  paymentStatus: TaxReviewPaymentStatus | null;
+  status: TaxReviewDeliveryJobStatus;
+  attemptCount: number;
+  staffSentAt: string | null;
+  customerSentAt: string | null;
+  conversationSavedAt: string | null;
+};
+
+export type TaxReviewRefundProjection = {
+  refundId: string;
+  lineUserId: string;
+  amount: number;
+  currency: "jpy";
+  refundStatus: string;
+  paymentAmount: number;
+  refundedAmount: number;
+  paymentStatus: TaxReviewPaymentStatus;
 };

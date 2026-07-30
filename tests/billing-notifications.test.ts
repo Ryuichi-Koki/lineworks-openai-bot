@@ -110,7 +110,7 @@ test("登録完了通知にプラン・利用開始日・次回更新日・残�
   assert.match(message, /ご利用開始：2026年7月29日/);
   assert.match(message, /次回更新日：2026年8月29日/);
   assert.match(message, /AI回答：100回/);
-  assert.match(message, /税理士相談：1件/);
+  assert.match(message, /旧月額契約の税理士相談特典：1件/);
 });
 
 test("退会予約通知は利用期限と無料会員への切替日を明示する", () => {
@@ -135,12 +135,13 @@ test("契約終了通知は無料会員として使える範囲を示す", () =>
 test("マイページは有料会員のプラン・残数・更新日を示す", () => {
   const message = buildStatusMessage(summary({ aiRemaining: 87 }));
 
-  assert.match(message, /【現在のご契約】/);
-  assert.match(message, /あんしん会員（月額3,300円 税込）/);
+  assert.match(message, /【現在のご契約・利用状況】/);
+  assert.match(message, /あんしん会員（旧月額契約・月額3,300円 税込）/);
   assert.match(message, /ご契約状況：ご利用中/);
   assert.match(message, /次回更新日：2026年8月29日/);
   assert.match(message, /AI回答：87回 \/ 100回/);
-  assert.match(message, /税理士相談：1件 \/ 1件/);
+  assert.match(message, /旧月額契約の税理士相談特典：1件 \/ 1件/);
+  assert.match(message, /追加決済なし/);
   // 状態を確認するために回数を使う状態を解消したことを明示する
   assert.match(message, /このメッセージではAI回答の回数を消費していません。/);
 });

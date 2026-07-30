@@ -92,7 +92,7 @@ export const richMenuDefinition = {
   name: "スグ税 会員メニュー",
   chatBarText: "メニュー",
   // すべてpostback。message actionは利用者の発言として残るため使わない
-  // （「契約管理」を押しただけで「退会したい」と発言した扱いになるのを防ぐ）。
+  // （「利用状況・退会」を押しただけで「退会したい」と発言した扱いになるのを防ぐ）。
   areas: [
     {
       bounds: cell(0, 0),
@@ -135,9 +135,9 @@ export const richMenuDefinition = {
       bounds: cell(1, 1),
       action: {
         type: "postback",
-        label: "契約管理",
+        label: "利用状況・退会",
         data: "action=open_billing_portal",
-        displayText: "契約管理を開きます",
+        displayText: "利用状況と退会方法を確認します",
       },
     },
     {

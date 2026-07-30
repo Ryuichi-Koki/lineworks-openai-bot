@@ -7,20 +7,22 @@ import {
 } from "../membership/messages.ts";
 import type { PlanCode } from "../membership/plans.ts";
 import {
-  completePaidTaxReview,
+  enqueueTaxReviewDelivery,
   findLineUserForStripeIdentity,
   getUsageSummary,
   linkStripeBillingIdentity,
   markTaxReviewPaymentFailed,
+  recordTaxReviewRefund,
   markTaxReviewPaymentPaid,
   markStripePaymentFailed,
   syncStripeMembership,
   upsertStripeBillingObject,
 } from "../membership/store.ts";
 import type { MembershipStatus } from "../membership/types.ts";
+import type { TaxReviewRefundProjection } from "../membership/types.ts";
 import { stripeClient } from "./client.ts";
 import { stripePriceForPlan } from "./config.ts";
-import { dispatchTaxProfessionalReview } from "../tax/consultationService.ts";
+import { processTaxReviewDelivery } from "../tax/deliveryQueue.ts";
 import {
   inclusiveEndDateFromUnix,
   isoDateFromUnix,
@@ -187,13 +189,85 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session): Promise<
       amount: session.amount_total,
       currency: session.currency,
     });
-    await dispatchTaxProfessionalReview({
+    const jobId = await enqueueTaxReviewDelivery({
       eventId: `stripe:${session.id}:tax_review`,
-      userId: payment.lineUserId,
-      customerText: payment.questionSummary,
+      lineUserId: payment.lineUserId,
+      reviewRequestId: payment.reviewRequestId,
+      paymentId: payment.id,
     });
-    await completePaidTaxReview(payment.id);
+    // The delivery is durably queued before contacting LINE WORKS or LINE.
+    // Make one best-effort attempt for a quick receipt; cron retries any
+    // remaining work without asking Stripe to resend the payment event.
+    await processTaxReviewDelivery(jobId);
   }
+}
+
+export function buildTaxReviewRefundNotification(
+  projection: TaxReviewRefundProjection,
+): string {
+  const amount = projection.amount.toLocaleString("ja-JP");
+  if (projection.refundStatus === "succeeded") {
+    return projection.paymentStatus === "refunded"
+      ? `税理士相談のお支払いについて、${amount}円の返金が完了しました。`
+      : `税理士相談のお支払いについて、${amount}円の一部返金が完了しました。`;
+  }
+  if (projection.refundStatus === "failed") {
+    return [
+      "税理士相談のお支払いの返金処理を完了できませんでした。",
+      "当法人で状況を確認し、必要に応じて個別にご案内します。",
+    ].join("\n");
+  }
+  return `税理士相談のお支払いについて、${amount}円の返金処理を受け付けました。`;
+}
+
+async function notifyTaxReviewPaymentFailure(
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  const payment = await markTaxReviewPaymentFailed(session.id);
+  if (!payment) return;
+  await pushLineMessage(
+    payment.lineUserId,
+    [
+      "税理士相談のお支払いを完了できませんでした。",
+      "ご請求は確定していません。",
+      "相談する場合は、リッチメニューの［税理士に相談］からもう一度お進みください。",
+    ].join("\n"),
+    deterministicRetryKey(`tax-review-payment-failed:${session.id}`),
+    { includePersistentMenuButton: true },
+  );
+}
+
+async function handleRefund(refund: Stripe.Refund): Promise<void> {
+  const paymentIntentId = stripeId(refund.payment_intent);
+  if (!paymentIntentId) return;
+  const projection = await recordTaxReviewRefund({
+    refundId: refund.id,
+    paymentIntentId,
+    amount: refund.amount,
+    currency: refund.currency,
+    status: refund.status ?? "unknown",
+    reason: refund.reason,
+    failureReason: refund.failure_reason,
+  });
+  if (!projection) return;
+  await upsertStripeBillingObject({
+    objectId: refund.id,
+    objectType: "refund",
+    lineUserId: projection.lineUserId,
+    status: refund.status ?? "unknown",
+    amount: refund.amount,
+    currency: refund.currency,
+    metadata: refund.metadata ?? {},
+    occurredAt: new Date(refund.created * 1000).toISOString(),
+  });
+  await pushLineMessage(
+    projection.lineUserId,
+    buildTaxReviewRefundNotification(projection),
+    deterministicRetryKey(
+      `tax-review-refund:${projection.refundId}:${projection.refundStatus}`,
+    ),
+    { includePersistentMenuButton: true },
+  );
 }
 
 function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
@@ -237,10 +311,16 @@ export async function processStripeEvent(event: Stripe.Event): Promise<string> {
       await handleCheckoutSession(event.data.object as Stripe.Checkout.Session);
       return "checkout_session_projected";
     case "checkout.session.async_payment_failed":
-      await markTaxReviewPaymentFailed(
-        (event.data.object as Stripe.Checkout.Session).id,
+    case "checkout.session.expired":
+      await notifyTaxReviewPaymentFailure(
+        event.data.object as Stripe.Checkout.Session,
       );
       return "tax_review_payment_failed";
+    case "refund.created":
+    case "refund.updated":
+    case "refund.failed":
+      await handleRefund(event.data.object as Stripe.Refund);
+      return "refund_projected";
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":

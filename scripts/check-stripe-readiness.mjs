@@ -104,6 +104,13 @@ const checks = [
     ok: existsSync(resolve(root, "migrations", "006_one_time_tax_review.sql")),
     requirement: "one-time tax-review payment migration",
   },
+  {
+    name: "migration 007",
+    ok: existsSync(
+      resolve(root, "migrations", "007_tax_review_delivery_and_refunds.sql"),
+    ),
+    requirement: "tax-review delivery queue and refund migration",
+  },
 ];
 
 if ((env.STRIPE_SECRET_KEY ?? "").startsWith("sk_live_")) {

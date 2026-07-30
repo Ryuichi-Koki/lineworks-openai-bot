@@ -29,7 +29,7 @@ export default function CancellationPage() {
         <h2>LINEから既存の有料会員を解約する</h2>
         <ol className="legal-steps">
           <li>スグ税のLINE公式アカウントを開きます。</li>
-          <li>画面下部のリッチメニューから「退会・契約管理」を選びます。</li>
+          <li>画面下部のリッチメニューから「利用状況・退会」を選びます。</li>
           <li>表示される現在の契約状態を確認し、解約へ進みます。</li>
           <li>最終確認画面の内容を確認して、手続を確定します。</li>
           <li>LINEに届く完了メッセージを確認します。</li>
