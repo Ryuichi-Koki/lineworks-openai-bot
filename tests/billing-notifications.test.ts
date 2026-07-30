@@ -162,6 +162,53 @@ test("マイページは無料会員に上位プランの案内を示す", () =>
   assert.doesNotMatch(message, /次回更新日/);
 });
 
+test("都度課金モードのマイページは基本無料を主表示し旧月額契約をプラン表示しない", () => {
+  const previous = process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED;
+  process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED = "true";
+  try {
+    const message = buildStatusMessage(summary({ aiRemaining: 87 }));
+
+    assert.match(message, /【マイページ】/);
+    assert.match(message, /ご利用プラン：基本無料/);
+    assert.match(message, /AI回答：月100件まで（今月の残り 87件）/);
+    assert.match(message, /料金：1回1,000円（税込）/);
+    assert.match(message, /月額料金・自動更新はありません/);
+    assert.match(message, /旧月額契約の未使用特典/);
+    assert.match(message, /税理士相談：残り1件（利用時の追加決済なし）/);
+    assert.doesNotMatch(message, /プラン：あんしん会員/);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED;
+    } else {
+      process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED = previous;
+    }
+  }
+});
+
+test("都度課金モードの無料会員マイページには旧月額契約の特典を表示しない", () => {
+  const previous = process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED;
+  process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED = "true";
+  try {
+    const message = buildStatusMessage(
+      summary({
+        planCode: "free",
+        membershipStatus: "free",
+        taxReviewRemaining: 0,
+      }),
+    );
+
+    assert.match(message, /ご利用プラン：基本無料/);
+    assert.doesNotMatch(message, /あんしん会員/);
+    assert.doesNotMatch(message, /旧月額契約の未使用特典/);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED;
+    } else {
+      process.env.ONE_TIME_CONSULTATION_BILLING_ENABLED = previous;
+    }
+  }
+});
+
 test("マイページは退会予約と支払い未確認を明示する", () => {
   const scheduled = buildStatusMessage(
     summary({ membershipStatus: "cancel_at_period_end" }),

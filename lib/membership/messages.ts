@@ -5,7 +5,10 @@ import type {
   UsageReservation,
   UsageSummary,
 } from "./types.ts";
-import { oneTimeConsultationBillingEnabled } from "../stripe/consultationPricing.ts";
+import {
+  oneTimeConsultationBillingEnabled,
+  taxReviewPriceAt,
+} from "../stripe/consultationPricing.ts";
 
 const PAID_STATUSES: MembershipStatus[] = [
   "active",
@@ -89,6 +92,10 @@ const MEMBERSHIP_STATUS_LABELS: Record<MembershipStatus, string> = {
  * 従来は残回数がAI回答の末尾にしか出ず、確認するために回数を使う必要があった。
  */
 export function buildStatusMessage(summary: UsageSummary): string {
+  if (oneTimeConsultationBillingEnabled()) {
+    return buildOneTimeBillingStatusMessage(summary);
+  }
+
   const plan = PLAN_CONFIG[summary.planCode];
   const lines = ["【現在のご契約・利用状況】", ""];
 
@@ -122,6 +129,42 @@ export function buildStatusMessage(summary: UsageSummary): string {
     lines.push(
       "",
       `残りの回数と件数は、${renewalLine(summary).replace(/^[^：]+：/, "")}にリセットされます。`,
+    );
+  }
+
+  if (summary.paymentFailed) {
+    lines.push(
+      "",
+      "⚠ 旧月額契約のお支払いを確認できません。［利用状況・退会］から支払方法をご確認ください。",
+    );
+  }
+
+  lines.push("", "※このメッセージではAI回答の回数を消費していません。");
+  return lines.join("\n");
+}
+
+function buildOneTimeBillingStatusMessage(summary: UsageSummary): string {
+  const price = taxReviewPriceAt();
+  const lines = [
+    "【マイページ】",
+    "",
+    "■ ご利用プラン：基本無料",
+    `■ AI回答：月100件まで（今月の残り ${summary.aiRemaining}件）`,
+    `■ 今月のご利用期間：${formatJapaneseDate(summary.periodStart)}〜${formatJapaneseDate(summary.periodEnd)}`,
+    "",
+    "【税理士へのLINE個別相談】",
+    `■ 料金：1回${price.amount.toLocaleString("ja-JP")}円（税込）`,
+    "■ 相談内容を確認後、1回ごとにお支払いいただきます",
+    "■ 月額料金・自動更新はありません",
+  ];
+
+  if (summary.planCode !== "free" && summary.taxReviewRemaining > 0) {
+    lines.push(
+      "",
+      "【旧月額契約の未使用特典】",
+      `■ 税理士相談：残り${summary.taxReviewRemaining}件（利用時の追加決済なし）`,
+      `■ 特典の利用期限：${formatJapaneseDate(summary.periodEnd)}`,
+      "※基本プランは無料です。旧「あんしん会員」は新規受付を終了しています。",
     );
   }
 
