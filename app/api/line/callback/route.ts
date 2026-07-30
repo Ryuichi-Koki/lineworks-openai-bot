@@ -33,6 +33,10 @@ import {
   buildStatusMessage,
 } from "@/lib/membership/messages";
 import {
+  BILLING_MANAGEMENT_UNAVAILABLE_MESSAGE,
+  noActiveSubscriptionManagementMessage,
+} from "@/lib/membership/managementMessages";
+import {
   beginWebhookEvent,
   cancelTaxReviewIntake,
   cancelReviewRequest,
@@ -386,7 +390,9 @@ async function showBillingManagement(
     const message =
       intent === "cancel"
         ? "有効なStripe契約はないため、有料会員の解約手続は不要です。無料会員の利用終了又は個人データの削除・利用停止を希望する場合は、info@abtax.jp又は当法人ウェブサイトのお問い合わせフォームからご連絡ください。LINEメンバーシップで加入している場合は、LINE内の会員設定から退会状況をご確認ください。"
-        : "現在、有料契約はありません。無料会員としてご利用中です。\nあんしん会員のお申し込みは「料金プラン」からご確認いただけます。";
+        : noActiveSubscriptionManagementMessage(
+            oneTimeConsultationBillingEnabled(),
+          );
     await pushLineMessage(userId, message, randomUUID());
     return message;
   }
@@ -1277,7 +1283,20 @@ export async function POST(request: Request): Promise<NextResponse> {
         } else if (accepted.kind === "status") {
           await showMembershipStatusSummary(accepted.event.userId);
         } else if (accepted.kind === "billing_portal") {
-          await showBillingManagement(accepted.event.userId, "manage");
+          try {
+            await showBillingManagement(accepted.event.userId, "manage");
+          } catch (error) {
+            console.error("Stripe billing management creation failed", {
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage:
+                error instanceof Error ? error.message : "Unknown error",
+            });
+            await pushLineMessage(
+              accepted.event.userId,
+              BILLING_MANAGEMENT_UNAVAILABLE_MESSAGE,
+              randomUUID(),
+            );
+          }
         } else if (accepted.kind === "legal_menu") {
           await pushLineLegalMenu(accepted.event.userId, randomUUID());
         } else if (accepted.kind === "question_help") {
