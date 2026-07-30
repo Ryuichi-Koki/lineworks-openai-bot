@@ -29,6 +29,8 @@ export async function pushLineMessage(
     taxReviewRequestId?: string;
     includeMembershipManagementButton?: boolean;
     membershipManagementUrl?: string;
+    includePaymentMethodButton?: boolean;
+    paymentMethodUrl?: string;
     includeMembershipMenu?: boolean;
     includeLegalMenu?: boolean;
     includeLegalConsentButtons?: boolean;
@@ -157,6 +159,25 @@ export async function pushLineMessage(
             type: "uri",
             label: "退会・契約管理へ",
             uri: managementUrl,
+          },
+        ],
+      },
+    });
+  }
+  // 都度払い用。解約する契約が無いため「退会」を出さない。
+  const paymentMethodUrl = options.paymentMethodUrl?.trim();
+  if (options.includePaymentMethodButton && paymentMethodUrl) {
+    messagePayloads.push({
+      type: "template",
+      altText: "お支払い方法を変更する",
+      template: {
+        type: "buttons",
+        text: "Stripeの安全な画面で、登録済みカードの変更・削除ができます。",
+        actions: [
+          {
+            type: "uri",
+            label: "お支払い方法を変更",
+            uri: paymentMethodUrl,
           },
         ],
       },

@@ -34,6 +34,7 @@ import {
 } from "@/lib/membership/messages";
 import {
   BILLING_MANAGEMENT_UNAVAILABLE_MESSAGE,
+  billingDocumentsMessage,
   noActiveSubscriptionManagementMessage,
   oneTimeBillingManagementMessage,
 } from "@/lib/membership/managementMessages";
@@ -50,6 +51,7 @@ import {
   finishWebhookEvent,
   getMembershipBillingState,
   getUsageSummary,
+  listBillingDocuments,
   hasPolicyAcceptance,
   membershipBillingEnabled,
   recordPolicyAcceptance,
@@ -87,10 +89,15 @@ import { processTaxReviewDelivery } from "@/lib/tax/deliveryQueue";
 import {
   cancelTaxReviewCheckout,
   createCustomerPortalSession,
+  createPaymentMethodPortalSession,
   createSubscriptionCheckoutSession,
   createTaxReviewCheckoutSession,
 } from "@/lib/stripe/billing";
-import { stripeBillingEnabled } from "@/lib/stripe/config";
+import {
+  invoiceIssuanceEnabled,
+  savedPaymentMethodEnabled,
+  stripeBillingEnabled,
+} from "@/lib/stripe/config";
 import {
   oneTimeConsultationBillingEnabled,
   taxReviewPriceAt,
@@ -375,6 +382,39 @@ async function hasActivePaidSubscription(userId: string): Promise<boolean> {
  * intent が "cancel" のときだけStripeの解約フローを直接開く。
  * リッチメニューの「契約管理」から解約フローに落とさないための区別。
  */
+/**
+ * 都度払い利用者の「お支払い」メニュー。
+ * 領収書のリンクを一覧で返し、カードを保存している場合だけ
+ * 支払い方法を変更できるStripeポータルのボタンをEditする。
+ */
+async function showPaymentAndReceipts(userId: string): Promise<string> {
+  const documents = await listBillingDocuments(userId);
+  const savedCard = savedPaymentMethodEnabled();
+  const message = billingDocumentsMessage(documents, {
+    savedCardEnabled: savedCard,
+    invoiceIssuanceEnabled: invoiceIssuanceEnabled(),
+  });
+
+  let portalUrl: string | null = null;
+  if (savedCard) {
+    try {
+      portalUrl = await createPaymentMethodPortalSession(userId);
+    } catch (error) {
+      // ポータルが開けなくても領収書は見せる。
+      console.error("Failed to create a payment method portal session", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  await pushLineMessage(userId, message, randomUUID(), {
+    includePaymentMethodButton: Boolean(portalUrl),
+    paymentMethodUrl: portalUrl ?? undefined,
+  });
+  return message;
+}
+
 async function showBillingManagement(
   userId: string,
   intent: "cancel" | "manage",
@@ -389,6 +429,11 @@ async function showBillingManagement(
       billingState.status,
     );
   if (oneTimeConsultationBillingEnabled()) {
+    // 解約する契約は無い。都度払いに必要な「領収書」と
+    // 「お支払い方法の変更」だけを提示する。
+    if (intent === "manage") {
+      return showPaymentAndReceipts(userId);
+    }
     const message = oneTimeBillingManagementMessage(stripeMembership);
     await pushLineMessage(userId, message, randomUUID());
     return message;

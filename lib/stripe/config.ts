@@ -23,6 +23,45 @@ export function stripeLiveModeEnabled(): boolean {
   return process.env.STRIPE_LIVE_MODE_ENABLED?.toLowerCase() === "true";
 }
 
+/**
+ * 都度払いのカードを次回以降のために保存するか。
+ * 保存する個人データが増えるため、利用規約・プライバシーポリシーへの
+ * 記載と決済時の同意表示が整うまでOFFのままにできるようフラグにする。
+ */
+export function savedPaymentMethodEnabled(): boolean {
+  return process.env.STRIPE_SAVE_PAYMENT_METHOD_ENABLED?.toLowerCase() === "true";
+}
+
+/** 領収書（適格請求書）をStripeのInvoiceとして発行するか。 */
+export function invoiceIssuanceEnabled(): boolean {
+  return process.env.STRIPE_INVOICE_ISSUANCE_ENABLED?.toLowerCase() === "true";
+}
+
+/**
+ * 適格請求書に記載する発行者の登録番号（T+13桁）。
+ * 記載要件を満たすかの最終判断は当法人が行うため、値は環境変数で管理する。
+ */
+export function invoiceRegistrationNumber(): string | null {
+  const value = process.env.STRIPE_INVOICE_REGISTRATION_NUMBER?.trim();
+  if (!value) return null;
+  if (!/^T\d{13}$/.test(value)) {
+    throw new Error(
+      "STRIPE_INVOICE_REGISTRATION_NUMBER must be a qualified invoice number in the form T + 13 digits",
+    );
+  }
+  return value;
+}
+
+export function stripePortalConfigurationId(): string | undefined {
+  const configuration = process.env.STRIPE_PORTAL_CONFIGURATION_ID?.trim();
+  if (configuration && !configuration.startsWith("bpc_")) {
+    throw new Error(
+      "STRIPE_PORTAL_CONFIGURATION_ID must contain a Portal configuration ID",
+    );
+  }
+  return configuration || undefined;
+}
+
 export function requireStripeEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);

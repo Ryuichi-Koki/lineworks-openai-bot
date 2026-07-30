@@ -1490,6 +1490,46 @@ export async function markStripePaymentFailed(input: {
   }
 }
 
+export type BillingDocument = {
+  objectId: string;
+  objectType: string;
+  amount: number | null;
+  currency: string | null;
+  hostedUrl: string;
+  occurredAt: string | null;
+};
+
+/**
+ * 利用者に提示できる領収書・請求書の一覧。
+ * hosted_url があるものだけを返す（開けない記録は見せない）。
+ */
+export async function listBillingDocuments(
+  lineUserId: string,
+  limit = 6,
+): Promise<BillingDocument[]> {
+  const sql = database();
+  const rows = await sql`
+    select stripe_object_id, object_type, amount, currency, hosted_url, occurred_at
+    from stripe_billing_objects
+    where line_user_id = ${lineUserId}
+      and hosted_url is not null
+      and object_type in ('invoice', 'payment_intent')
+      and status not in ('canceled', 'void', 'draft')
+    order by coalesce(occurred_at, updated_at) desc
+    limit ${Math.min(Math.max(limit, 1), 20)}
+  `;
+  return rows.map((row) => ({
+    objectId: String(row.stripe_object_id),
+    objectType: String(row.object_type),
+    amount: row.amount === null ? null : Number(row.amount),
+    currency: row.currency ? String(row.currency) : null,
+    hostedUrl: String(row.hosted_url),
+    occurredAt: row.occurred_at
+      ? new Date(String(row.occurred_at)).toISOString()
+      : null,
+  }));
+}
+
 export async function upsertStripeBillingObject(input: {
   objectId: string;
   objectType: "checkout_session" | "payment_intent" | "invoice" | "credit_note" | "refund";

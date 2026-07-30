@@ -13,7 +13,11 @@ import {
 import { stripeClient } from "./client.ts";
 import {
   assertStripeObjectMode,
+  invoiceIssuanceEnabled,
+  invoiceRegistrationNumber,
+  savedPaymentMethodEnabled,
   stripeAppBaseUrl,
+  stripePortalConfigurationId,
   stripePriceForPlan,
 } from "./config.ts";
 import {
@@ -198,6 +202,7 @@ export async function createTaxReviewCheckoutSession(input: {
   });
   // Stripeは作成時点から最低30分後を要求する。API往復中に下回らないよう31分にする。
   const expiresAt = Math.floor(now.getTime() / 1000) + 31 * 60;
+  const registrationNumber = invoiceRegistrationNumber();
   const termsUrl = legalDocumentUrl("terms");
   const tokushoUrl = legalDocumentUrl("tokusho");
   const params: Stripe.Checkout.SessionCreateParams = {
@@ -213,12 +218,44 @@ export async function createTaxReviewCheckoutSession(input: {
     billing_address_collection: "required",
     tax_id_collection: { enabled: true },
     metadata,
-    payment_intent_data: { metadata },
+    payment_intent_data: {
+      metadata,
+      // カードを保存すると「お支払い方法の変更」が可能になる。
+      // 保持する個人データが増えるため、規約整備が済むまでOFFにできる。
+      ...(savedPaymentMethodEnabled()
+        ? { setup_future_usage: "off_session" as const }
+        : {}),
+    },
+    ...(invoiceIssuanceEnabled()
+      ? {
+          invoice_creation: {
+            enabled: true,
+            invoice_data: {
+              description: "税理士への個別相談（1回）",
+              metadata,
+              ...(registrationNumber
+                ? {
+                    custom_fields: [
+                      { name: "登録番号", value: registrationNumber },
+                    ],
+                    footer: `適格請求書発行事業者登録番号: ${registrationNumber}`,
+                  }
+                : {}),
+            },
+          },
+        }
+      : {}),
     custom_text: {
       submit: {
         message: [
           "決済完了後に税理士相談の受付を開始します。",
           "相談1回ごとの都度払いで、自動更新はありません。",
+          ...(savedPaymentMethodEnabled()
+            ? [
+                "次回のお支払いのため、カード情報をStripeに保存します。",
+                "保存したカードは「お支払い」メニューからいつでも変更・削除できます。",
+              ]
+            : []),
           `利用規約: ${termsUrl}`,
           `返金条件・特定商取引法に基づく表記: ${tokushoUrl}`,
         ].join("\n"),
@@ -315,6 +352,29 @@ export async function createCustomerPortalSession(
           },
   };
   const session = await stripeClient().billingPortal.sessions.create(params);
+  assertStripeObjectMode(session.livemode);
+  return assertSafeStripePortalUrl(session.url);
+}
+
+/**
+ * 都度払い利用者向けのポータル。
+ * 継続契約が無くても開けるよう、subscriptionを要求しない。
+ * 解約フローは開かず、支払い方法と請求履歴の管理だけを想定する。
+ *
+ * Stripe側のPortal設定で `subscription_cancel` を無効、
+ * `payment_method_update` と `invoice_history` を有効にしておくこと。
+ */
+export async function createPaymentMethodPortalSession(
+  lineUserId: string,
+): Promise<string | null> {
+  const customerId = await findStripeCustomerForLineUser(lineUserId);
+  if (!customerId) return null;
+  const session = await stripeClient().billingPortal.sessions.create({
+    customer: customerId,
+    configuration: stripePortalConfigurationId(),
+    locale: "ja",
+    return_url: `${stripeAppBaseUrl()}/billing/manage`,
+  });
   assertStripeObjectMode(session.livemode);
   return assertSafeStripePortalUrl(session.url);
 }
