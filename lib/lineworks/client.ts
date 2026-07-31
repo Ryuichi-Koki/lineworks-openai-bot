@@ -107,17 +107,30 @@ export async function sendStaffApprovalMessage(record: ApprovalRecord): Promise<
   });
 }
 
+/**
+ * 相談依頼を税理士へ通知する。
+ *
+ * 本文はテキストメッセージとして先に送る。button_template の contentText は
+ * 1,000字までのため、ここへ相談本文を入れると支払われた相談内容が
+ * 切り落とされる（利用者は課金済みなのに税理士が読めない状態になる）。
+ */
 export async function sendStaffConsultationMessage(
   record: ConsultationRecord,
 ): Promise<void> {
+  await sendStaffChannelMessage(
+    [
+      "【公式LINE・税理士個別相談】",
+      `受付ID: ${record.id}`,
+      "",
+      record.staffContext,
+    ].join("\n"),
+  );
   await sendStaffContent({
     type: "button_template",
     contentText: truncate(
       [
-        "【公式LINE・税理士個別相談】",
+        "上記の相談に回答する場合は、下のボタンを押してください。",
         `受付ID: ${record.id}`,
-        "",
-        record.staffContext,
       ].join("\n"),
       1000,
     ),

@@ -56,6 +56,7 @@ const migrations = [
   "005_pending_questions.sql",
   "006_one_time_tax_review.sql",
   "007_tax_review_delivery_and_refunds.sql",
+  "008_pricing_constraint_and_stale_reservations.sql",
 ];
 
 try {
