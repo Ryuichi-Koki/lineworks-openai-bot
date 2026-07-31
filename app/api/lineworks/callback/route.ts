@@ -516,6 +516,30 @@ async function handleConsultationSend(
     session.consultationId !== event.consultationId ||
     session.stage !== "confirming"
   ) {
+    // 旧実装では受付通知と回答が同じ再送キーを使っていたため、LINE APIの
+    // 409を成功扱いしてstatusだけsentになった案件がある。修正前に表示した
+    // 「公式LINEへ送信」ボタンをもう一度押せば、回答専用キーで安全に復旧する。
+    // 修正後に正常送信済みの案件では同じ専用キーが409になるため重複しない。
+    const existing = await getConsultation(event.consultationId);
+    if (existing?.status === "sent" && existing.replyText) {
+      const sentReply = markAsTaxProfessionalReply(existing.replyText);
+      await pushLineMessage(
+        existing.lineUserId,
+        sentReply,
+        deriveLineRetryKey(existing.lineRetryKey, "tax-professional-reply"),
+      );
+      await appendAuditRecord({
+        approvalId: existing.id,
+        eventType: "reply_sent",
+        recordedAt: new Date().toISOString(),
+        answer: sentReply,
+        reviewerUserId: event.reviewerUserId,
+      });
+      await sendStaffChannelMessage(
+        `公式LINEへ税理士回答を再送しました。\n受付ID: ${event.consultationId}`,
+      );
+      return { status: "consultation_sent" };
+    }
     return { status: "consultation_session_not_found" };
   }
 
