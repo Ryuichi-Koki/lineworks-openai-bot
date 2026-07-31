@@ -30,6 +30,10 @@ import {
   sendStaffChannelMessage,
   sendStaffConsultationConfirmation,
 } from "@/lib/lineworks/client";
+import {
+  isAuthorizedApprover,
+  parseApproverUserIds,
+} from "@/lib/lineworks/approvers";
 import { verifyLineWorksSignature } from "@/lib/lineworks/verifySignature";
 import { reviseReplyDraft } from "@/lib/openai/generateReplyDraft";
 
@@ -136,16 +140,6 @@ function getRevisionInstruction(
 function isCurrentRevision(recordRevision: number | undefined, requestedRevision: number | null): boolean {
   const currentRevision = recordRevision ?? 0;
   return requestedRevision === null ? currentRevision === 0 : requestedRevision === currentRevision;
-}
-
-function isAuthorizedApprover(userId: string): boolean {
-  const configured = process.env.LINEWORKS_APPROVER_USER_IDS;
-  if (!configured) return true;
-  return configured
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .includes(userId);
 }
 
 async function handleApproval(
@@ -653,6 +647,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     revisionInstruction?.reviewerUserId;
   if (!reviewerUserId) return NextResponse.json({ ok: true, ignored: true });
   if (!isAuthorizedApprover(reviewerUserId)) {
+    console.error("LINE WORKS approval request was rejected", {
+      reason: parseApproverUserIds().length === 0
+        ? "LINEWORKS_APPROVER_USER_IDS is not configured"
+        : "reviewer is not on the approver list",
+    });
     return NextResponse.json({ error: "Approver not allowed" }, { status: 403 });
   }
 

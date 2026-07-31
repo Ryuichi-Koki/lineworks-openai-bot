@@ -6,6 +6,7 @@ import {
   completeQueuedTaxReview,
   completeTaxReviewDeliveryJob,
   enqueueMissingPaidTaxReviewDeliveries,
+  expireStaleUsageReservations,
   markExpiredTaxReviewPayments,
   markTaxReviewDeliveryStep,
   retryTaxReviewDeliveryJob,
@@ -128,11 +129,23 @@ export async function processTaxReviewDelivery(
 export async function reconcileTaxReviewDeliveries(): Promise<{
   recoveredPayments: number;
   expiredPayments: number;
+  expiredReservations: number;
   claimed: number;
   completed: number;
   pending: number;
   failed: number;
 }> {
+  // 取り残された利用予約の回収は配送処理と独立している。
+  // ここで失敗しても配送の再試行を止めないよう、例外を握り潰して記録する。
+  let expiredReservations = 0;
+  try {
+    expiredReservations = await expireStaleUsageReservations();
+  } catch (error) {
+    console.error("Failed to expire stale usage reservations", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
   const recoveredPayments = await enqueueMissingPaidTaxReviewDeliveries();
   const expired = await markExpiredTaxReviewPayments();
   await Promise.allSettled(
@@ -152,6 +165,7 @@ export async function reconcileTaxReviewDeliveries(): Promise<{
   return {
     recoveredPayments,
     expiredPayments: expired.length,
+    expiredReservations,
     claimed: processed.claimed,
     completed: processed.completedJobIds.length,
     pending: processed.pendingJobIds.length,

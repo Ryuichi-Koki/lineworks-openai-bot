@@ -176,7 +176,7 @@ LINE WORKS Developers ConsoleでBot、Service Account、Private Keyを準備し�
 - 対象トークルームのchannelIdを `LINEWORKS_STAFF_CHANNEL_ID` に設定
 - Private Keyは改行を `\n` にした1行の値として設定可能
 
-`LINEWORKS_APPROVER_USER_IDS` に承認可能な職員のLINE WORKS userIdをカンマ区切りで設定できます。空欄の場合は、そのBotのボタンを押せる全メンバーを許可します。本番では設定を推奨します。
+`LINEWORKS_APPROVER_USER_IDS` に承認可能な職員のLINE WORKS userIdをカンマ区切りで**必ず**設定してください。**空欄の場合は誰も承認・回答送信できません**（フェイルクローズ）。本番ビルドは `scripts/check-production-config.mjs` がこの設定を検査し、未設定ならビルドを中止します。
 
 ### 4. 案件保存
 

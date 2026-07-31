@@ -236,6 +236,34 @@ export async function cancelUsage(usageEventId: string): Promise<boolean> {
   return Boolean(rows[0]?.changed);
 }
 
+/**
+ * 予約のまま取り残された ai_answer の利用イベントを取り消す。
+ *
+ * LINE Webhookは回答生成（OpenAIを最大4回）を同期実行するため、
+ * 関数タイムアウト・デプロイ・クラッシュで 'reserved' が残りうる。
+ * 集計側（reserve_usage / getUsageSummary）でも同じ時間で除外しているので、
+ * このバッチが遅延・停止しても利用者が枠を失うことはない。
+ * ここでは台帳の状態を実態へ合わせるために回収する。
+ *
+ * tax_review は配送キューの再試行（最大8回・指数バックオフ）で
+ * 数時間 'reserved' のまま正当に残るため、対象にしない。
+ */
+export async function expireStaleUsageReservations(
+  olderThanMinutes = 30,
+): Promise<number> {
+  const sql = database();
+  const minutes = Math.max(30, Math.trunc(olderThanMinutes));
+  const rows = await sql`
+    update usage_events
+    set status = 'canceled', canceled_at = now()
+    where status = 'reserved'
+      and usage_type = 'ai_answer'
+      and created_at <= now() - (${minutes}::text || ' minutes')::interval
+    returning id
+  `;
+  return rows.length;
+}
+
 export async function getUsageSummary(lineUserId: string): Promise<UsageSummary> {
   const sql = database();
   await ensureMembershipUser(lineUserId);
@@ -252,9 +280,20 @@ export async function getUsageSummary(lineUserId: string): Promise<UsageSummary>
       count(e.id) filter (
         where e.usage_type = 'tax_review' and e.status = 'consumed'
       )::integer as tax_review_used
+      -- 予約のまま取り残された ai_answer は上限へ算入しない。
+      -- 算入したままだと、関数タイムアウトのたびに月間枠が永久に1件減る。
+      -- 判定は reserve_usage（migration 008）と同じ30分。
       ,count(e.id) filter (
-        where e.usage_type = 'ai_answer' and e.status in ('reserved','consumed')
+        where e.usage_type = 'ai_answer'
+          and (
+            e.status = 'consumed'
+            or (
+              e.status = 'reserved'
+              and e.created_at > now() - interval '30 minutes'
+            )
+          )
       )::integer as ai_active
+      -- tax_review は配送キューの再試行で数時間 'reserved' が続きうるため対象外。
       ,count(e.id) filter (
         where e.usage_type = 'tax_review' and e.status in ('reserved','consumed')
       )::integer as tax_review_active

@@ -44,6 +44,15 @@ const checks = [
     value("LINEWORKS_STAFF_CHANNEL_ID").length > 0 ||
       value("LINEWORKS_CHANNEL_ID").length > 0,
   ],
+  // 承認者リストはフェイルクローズのため、未設定だと税理士が
+  // 顧問先へ回答を送信できなくなる。本番ビルドの時点で検出する。
+  [
+    "LINEWORKS_APPROVER_USER_IDS",
+    value("LINEWORKS_APPROVER_USER_IDS")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean).length > 0,
+  ],
   ["UPSTASH_REDIS_REST_URL", isHttps("UPSTASH_REDIS_REST_URL")],
   ["UPSTASH_REDIS_REST_TOKEN", value("UPSTASH_REDIS_REST_TOKEN").length >= 20],
   ["OPENAI_API_KEY", value("OPENAI_API_KEY").startsWith("sk-")],
