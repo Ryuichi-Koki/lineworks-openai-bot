@@ -195,7 +195,7 @@ test("存在しない旧Stripe顧客は新規Checkout作成へフォールバッ
   const stripe = {
     customers: {
       retrieve: async () => {
-        throw { code: "resource_missing", param: "customer" };
+        throw { code: "resource_missing", param: "id" };
       },
     },
   } as unknown as Stripe;
@@ -208,6 +208,13 @@ test("存在しない旧Stripe顧客は新規Checkout作成へフォールバッ
     isMissingStripeCustomerError({
       code: "resource_missing",
       param: "customer",
+    }),
+    true,
+  );
+  assert.equal(
+    isMissingStripeCustomerError({
+      code: "resource_missing",
+      param: "id",
     }),
     true,
   );

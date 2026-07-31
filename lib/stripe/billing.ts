@@ -34,7 +34,10 @@ function safeMetadata(input: Record<string, string>): Record<string, string> {
 export function isMissingStripeCustomerError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const detail = error as { code?: unknown; param?: unknown };
-  return detail.code === "resource_missing" && detail.param === "customer";
+  return (
+    detail.code === "resource_missing" &&
+    (detail.param === "customer" || detail.param === "id")
+  );
 }
 
 export async function resolveReusableStripeCustomerId(
