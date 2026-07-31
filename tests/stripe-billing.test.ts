@@ -5,7 +5,10 @@ import {
   buildSubscriptionCheckoutParams,
   checkoutDayBucket,
   checkoutIdempotencyKey,
+  isMissingStripeCustomerError,
+  resolveReusableStripeCustomerId,
 } from "../lib/stripe/billing.ts";
+import type Stripe from "stripe";
 import {
   assertSafeStripeSecret,
   assertStripeObjectMode,
@@ -185,5 +188,41 @@ test("Customer Portal URL accepts only Stripe-hosted HTTPS URLs", () => {
   assert.throws(
     () => assertSafeStripePortalUrl("http://billing.stripe.com/insecure"),
     /unexpected Customer Portal URL/,
+  );
+});
+
+test("存在しない旧Stripe顧客は新規Checkout作成へフォールバックする", async () => {
+  const stripe = {
+    customers: {
+      retrieve: async () => {
+        throw { code: "resource_missing", param: "customer" };
+      },
+    },
+  } as unknown as Stripe;
+
+  assert.equal(
+    await resolveReusableStripeCustomerId("cus_old_test_record", stripe),
+    null,
+  );
+  assert.equal(
+    isMissingStripeCustomerError({
+      code: "resource_missing",
+      param: "customer",
+    }),
+    true,
+  );
+});
+
+test("顧客不存在以外のStripeエラーは握り潰さない", async () => {
+  const stripe = {
+    customers: {
+      retrieve: async () => {
+        throw { code: "api_connection_error" };
+      },
+    },
+  } as unknown as Stripe;
+
+  await assert.rejects(
+    resolveReusableStripeCustomerId("cus_connection_failure", stripe),
   );
 });
