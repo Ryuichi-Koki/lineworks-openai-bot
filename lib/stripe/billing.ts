@@ -31,6 +31,36 @@ function safeMetadata(input: Record<string, string>): Record<string, string> {
   );
 }
 
+export function isMissingStripeCustomerError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const detail = error as { code?: unknown; param?: unknown };
+  return detail.code === "resource_missing" && detail.param === "customer";
+}
+
+export async function resolveReusableStripeCustomerId(
+  customerId: string,
+  stripe: Stripe,
+): Promise<string | null> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if ("deleted" in customer && customer.deleted) return null;
+    assertStripeObjectMode(customer.livemode);
+    return customer.id;
+  } catch (error) {
+    if (isMissingStripeCustomerError(error)) return null;
+    throw error;
+  }
+}
+
+async function findReusableStripeCustomerForLineUser(
+  lineUserId: string,
+  stripe: Stripe,
+): Promise<string | null> {
+  const customerId = await findStripeCustomerForLineUser(lineUserId);
+  if (!customerId) return null;
+  return resolveReusableStripeCustomerId(customerId, stripe);
+}
+
 export function buildSubscriptionCheckoutParams(input: {
   lineUserId: string;
   planCode: Exclude<PlanCode, "free">;
@@ -94,7 +124,10 @@ export async function createSubscriptionCheckoutSession(input: {
 }): Promise<{ url: string; reused: boolean }> {
   const stripe = stripeClient();
   const baseUrl = stripeAppBaseUrl();
-  const customer = await findStripeCustomerForLineUser(input.lineUserId);
+  const customer = await findReusableStripeCustomerForLineUser(
+    input.lineUserId,
+    stripe,
+  );
   const params = buildSubscriptionCheckoutParams({
     lineUserId: input.lineUserId,
     planCode: input.planCode,
@@ -123,7 +156,11 @@ export async function createOneTimeCheckoutSession(input: {
   if (!input.priceId.startsWith("price_")) {
     throw new Error("A Stripe Price ID is required");
   }
-  const customer = await findStripeCustomerForLineUser(input.lineUserId);
+  const stripe = stripeClient();
+  const customer = await findReusableStripeCustomerForLineUser(
+    input.lineUserId,
+    stripe,
+  );
   const metadata = safeMetadata({
     line_user_id: input.lineUserId,
     reference_id: input.referenceId,
@@ -144,7 +181,7 @@ export async function createOneTimeCheckoutSession(input: {
     success_url: `${stripeAppBaseUrl()}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${stripeAppBaseUrl()}/billing/cancel`,
   };
-  const session = await stripeClient().checkout.sessions.create(params, {
+  const session = await stripe.checkout.sessions.create(params, {
     idempotencyKey: `payment-checkout:${input.idempotencyKey}`,
   });
   assertStripeObjectMode(session.livemode);
@@ -192,7 +229,10 @@ export async function createTaxReviewCheckoutSession(input: {
     );
   }
 
-  const customer = await findStripeCustomerForLineUser(input.lineUserId);
+  const customer = await findReusableStripeCustomerForLineUser(
+    input.lineUserId,
+    stripe,
+  );
   const metadata = safeMetadata({
     purchase_type: "tax_review",
     line_user_id: input.lineUserId,
@@ -270,6 +310,7 @@ export async function createTaxReviewCheckoutSession(input: {
       "tax-review-checkout",
       payment.id,
       selectedPrice.code,
+      customer ?? "new-customer",
       Math.floor(now.getTime() / (30 * 60 * 1000)),
     ].join(":"),
   });
@@ -324,6 +365,14 @@ export async function createCustomerPortalSession(
   if (!identity.subscriptionId) {
     throw new Error("No Stripe subscription is linked to this LINE user");
   }
+  const stripe = stripeClient();
+  const customerId = await resolveReusableStripeCustomerId(
+    identity.customerId,
+    stripe,
+  );
+  if (!customerId) {
+    throw new Error("No active Stripe customer is linked to this LINE user");
+  }
   const baseUrl = stripeAppBaseUrl();
   const returnUrl = `${baseUrl}/billing/manage`;
   const configuration = process.env.STRIPE_PORTAL_CONFIGURATION_ID?.trim();
@@ -331,7 +380,7 @@ export async function createCustomerPortalSession(
     throw new Error("STRIPE_PORTAL_CONFIGURATION_ID must contain a Portal configuration ID");
   }
   const params: Stripe.BillingPortal.SessionCreateParams = {
-    customer: identity.customerId,
+    customer: customerId,
     configuration: configuration || undefined,
     locale: "ja",
     return_url: returnUrl,
@@ -351,7 +400,7 @@ export async function createCustomerPortalSession(
             },
           },
   };
-  const session = await stripeClient().billingPortal.sessions.create(params);
+  const session = await stripe.billingPortal.sessions.create(params);
   assertStripeObjectMode(session.livemode);
   return assertSafeStripePortalUrl(session.url);
 }
@@ -367,9 +416,13 @@ export async function createCustomerPortalSession(
 export async function createPaymentMethodPortalSession(
   lineUserId: string,
 ): Promise<string | null> {
-  const customerId = await findStripeCustomerForLineUser(lineUserId);
+  const stripe = stripeClient();
+  const customerId = await findReusableStripeCustomerForLineUser(
+    lineUserId,
+    stripe,
+  );
   if (!customerId) return null;
-  const session = await stripeClient().billingPortal.sessions.create({
+  const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
     configuration: stripePortalConfigurationId(),
     locale: "ja",
