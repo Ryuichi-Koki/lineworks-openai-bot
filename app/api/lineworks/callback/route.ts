@@ -16,6 +16,7 @@ import {
   updateApprovalDraft,
 } from "@/lib/approvals/store";
 import { pushLineMessage } from "@/lib/line/client";
+import { deriveLineRetryKey } from "@/lib/line/retryKey";
 import {
   markAsReviewedAiReply,
   markAsTaxProfessionalReply,
@@ -532,7 +533,7 @@ async function handleConsultationSend(
     await pushLineMessage(
       claimed.lineUserId,
       sentReply,
-      claimed.lineRetryKey,
+      deriveLineRetryKey(claimed.lineRetryKey, "tax-professional-reply"),
     );
     await transitionConsultation(
       event.consultationId,
